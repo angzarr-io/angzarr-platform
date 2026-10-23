@@ -166,6 +166,12 @@ pub trait Fs: Send + Sync + std::fmt::Debug {
     /// `false`); an error is a failure to find out, never "absent".
     fn exists(&self, path: &Path) -> io::Result<bool>;
 
+    /// `path` as the caller names it from the top: joined to the working
+    /// directory when relative, `.` and `..` resolved textually (none
+    /// above the top). Nothing is looked up, so a link stays as spelled:
+    /// for what names a path rather than opens it (a lock's name).
+    fn absolute(&self, path: &Path) -> io::Result<PathBuf>;
+
     /// `path` with every link and `.`/`..` resolved, as the caller names
     /// it.
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf>;

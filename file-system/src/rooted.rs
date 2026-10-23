@@ -159,6 +159,10 @@ impl Fs for Rooted {
         std::fs::exists(self.reroot(path)?)
     }
 
+    fn absolute(&self, path: &Path) -> io::Result<PathBuf> {
+        Ok(self.caller(path)?.path())
+    }
+
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
         self.unroot(&std::fs::canonicalize(self.reroot(path)?)?)
     }
@@ -209,14 +213,14 @@ fn not_absolute(path: &Path) -> io::Error {
 
 /// A caller's absolute path, `.` and `..` resolved textually: a `..` at the
 /// top stays there.
-struct Caller {
+pub(crate) struct Caller {
     top: Top,
     parts: Vec<OsString>,
 }
 
 impl Caller {
     /// `path`, which must be absolute (`InvalidInput` otherwise).
-    fn parse(path: &Path) -> io::Result<Caller> {
+    pub(crate) fn parse(path: &Path) -> io::Result<Caller> {
         let mut components = path.components();
         let top = Top::take(&mut components).ok_or_else(|| not_absolute(path))?;
         let mut parts = Vec::new();
@@ -234,7 +238,7 @@ impl Caller {
     }
 
     /// As the caller spells it.
-    fn path(&self) -> PathBuf {
+    pub(crate) fn path(&self) -> PathBuf {
         self.parts.iter().fold(self.top.caller(), |p, c| p.join(c))
     }
 

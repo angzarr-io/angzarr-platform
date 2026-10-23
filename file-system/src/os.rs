@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::rooted::Caller;
 use crate::{real, Entry, Fs, Meta, Mode, Open, Perms};
 
 /// The real filesystem: `std::fs` on each path as given, a relative one
@@ -92,6 +93,10 @@ impl Fs for Os {
 
     fn exists(&self, path: &Path) -> io::Result<bool> {
         std::fs::exists(self.at(path)?)
+    }
+
+    fn absolute(&self, path: &Path) -> io::Result<PathBuf> {
+        Ok(Caller::parse(&self.at(path)?)?.path())
     }
 
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {

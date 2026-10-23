@@ -497,6 +497,25 @@ fn test_canonicalize_resolves_links_and_dots_into_the_callers_path(case: &Case) 
     );
 }
 
+fn test_absolute_names_a_path_from_the_top_looking_nothing_up(case: &Case) {
+    let real = case.dir("real");
+    case.fs.symlink_dir(&real, &case.at("alias")).unwrap();
+    let fs = &case.fs;
+    assert_eq!(
+        fs.absolute(Path::new("alias/./x/../missing")).unwrap(),
+        case.at("alias/missing"),
+        "relative: joined to the working directory, dots resolved, the link kept"
+    );
+    assert_eq!(
+        fs.absolute(&case.at("a/../b")).unwrap(),
+        case.at("b"),
+        "absolute: cleaned"
+    );
+    let top = if cfg!(windows) { r"C:\" } else { "/" };
+    let above = Path::new(top).join("..").join("x");
+    assert_eq!(fs.absolute(&above).unwrap(), Path::new(top).join("x"));
+}
+
 // --- Decision: temporary directories are caller-visible and fresh ----------
 
 fn test_a_temporary_directory_is_new_empty_and_in_its_parent(case: &Case) {
@@ -572,6 +591,7 @@ contract!(
     test_an_absolute_link_reads_back_as_written_and_is_followed,
     test_read_link_of_what_is_not_a_link_is_invalid_input,
     test_canonicalize_resolves_links_and_dots_into_the_callers_path,
+    test_absolute_names_a_path_from_the_top_looking_nothing_up,
     test_a_temporary_directory_is_new_empty_and_in_its_parent,
     test_real_path_is_where_std_finds_what_the_seam_wrote,
     test_same_file_is_true_for_the_file_at_the_path,
