@@ -8,8 +8,16 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-# Rooted::temp: a re-rooted filesystem that owns (and removes) its root.
+# write_atomic's staged file, make_temp_dir, and Rooted::temp: a re-rooted
+# filesystem that owns (and removes) its root.
 tempfile.workspace = true
+
+[dev-dependencies]
+mutants.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+junction.workspace = true
+same-file.workspace = true
 
 [lints]
 workspace = true

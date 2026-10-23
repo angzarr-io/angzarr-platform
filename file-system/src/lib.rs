@@ -10,18 +10,16 @@
 //! Errors are `std::io::Error` with the kind the OS gave (`NotFound`,
 //! `AlreadyExists`, ...), plus the seam's own refusals:
 //!
-//! - every path is ABSOLUTE: a relative one is refused as `InvalidInput`
-//!   by both implementors, so no operation reads the process's working
-//!   directory. A caller resolving a relative path joins it to the working
-//!   directory it was handed (the composition root reads it once).
+//! - a RELATIVE path resolves against the working directory the
+//!   filesystem was made with ([`Os::new`], [`Rooted::new`]), an absolute
+//!   path the caller gives (the composition root reads the process's once):
+//!   no operation reads the process's working directory itself.
 //! - a path given or returned is the CALLER'S path: [`Rooted`] never shows
 //!   its root, except through [`Fs::real_path`], which exists for what
 //!   must open a path itself (SQLite, advisory locks).
-//!
-//! PROPOSAL: the signatures are the design under review; the bodies are
-//! not written.
 
 mod os;
+mod real;
 mod rooted;
 
 use std::fs::File;
@@ -33,8 +31,8 @@ pub use os::Os;
 pub use rooted::Rooted;
 
 /// Permission bits (`0o777` at most). On unix they are the mode. On
-/// Windows nothing yet honours them (an open question: Go reads
-/// "owner-only" there as the DACL).
+/// Windows they are ignored (owner-only there, Go's DACL, is not yet
+/// ported).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Mode(u32);
 
@@ -118,8 +116,9 @@ pub struct Entry {
     pub kind: Kind,
 }
 
-/// The filesystem. Every path is absolute (`InvalidInput` otherwise) and
-/// the caller's own; see the crate's documentation.
+/// The filesystem. Every path is the caller's own, a relative one resolved
+/// against the filesystem's working directory; see the crate's
+/// documentation.
 pub trait Fs: Send + Sync + std::fmt::Debug {
     /// The file's bytes.
     fn read(&self, path: &Path) -> io::Result<Vec<u8>>;
@@ -172,7 +171,8 @@ pub trait Fs: Send + Sync + std::fmt::Debug {
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf>;
 
     /// Make `link` a link to the directory `target`, written as given
-    /// (relative to `link`'s parent when relative).
+    /// (relative to `link`'s parent when relative). On Windows it is a
+    /// junction, which names its target absolutely.
     fn symlink_dir(&self, target: &Path, link: &Path) -> io::Result<()>;
 
     /// The target `link` was made with, as the caller gave it.
@@ -186,6 +186,12 @@ pub trait Fs: Send + Sync + std::fmt::Debug {
     /// database, an advisory lock file): `path` itself for [`Os`], its
     /// re-rooted place for [`Rooted`]. Nothing else may use it.
     fn real_path(&self, path: &Path) -> io::Result<PathBuf>;
+
+    /// Whether `file` is the file at `path` now (links followed): the same
+    /// device and inode on unix, the same volume and file index on Windows.
+    /// A file renamed over `path` since `file` was opened is not;
+    /// `NotFound` when nothing is at `path`.
+    fn same_file(&self, file: &File, path: &Path) -> io::Result<bool>;
 }
 
 #[cfg(test)]

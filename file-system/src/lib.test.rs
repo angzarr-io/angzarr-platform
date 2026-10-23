@@ -1,7 +1,7 @@
 //! The contract every [`Fs`] keeps: each test runs once against [`Os`]
 //! (under a temporary directory, by its real path) and once against
 //! [`Rooted`] (at a caller's path that names no real directory, `/work`),
-//! with the same assertions. A test that reaches past the seam (to plant a
+//! with the same assertions. Each is made working in that directory. A test that reaches past the seam (to plant a
 //! link the seam would not make, or to check what std sees) says so.
 
 use std::io::{ErrorKind, Read, Write};
@@ -43,7 +43,7 @@ fn os_case() -> Case {
     // /private/var), so canonicalize has nothing of its own to add.
     let base = std::fs::canonicalize(temp.path()).unwrap();
     Case {
-        fs: Arc::new(Os),
+        fs: Arc::new(Os::new(&base).unwrap()),
         base,
         _temp: Some(temp),
     }
@@ -60,8 +60,8 @@ fn caller_base() -> PathBuf {
 }
 
 fn rooted_case() -> Case {
-    let fs = Rooted::temp().unwrap();
     let base = caller_base();
+    let fs = Rooted::temp_with_cwd(&base).unwrap();
     fs.create_dir_all(&base, Mode::DIR).unwrap();
     Case {
         fs: Arc::new(fs),
@@ -92,42 +92,75 @@ macro_rules! contract {
 #[test]
 fn test_an_fs_is_held_as_a_shared_trait_object() {
     fn shared<T: Send + Sync + 'static>(_: &T) {}
-    let os: Arc<dyn Fs> = Arc::new(Os);
+    let os: Arc<dyn Fs> = Arc::new(Os::new(&caller_base()).unwrap());
     shared(&os);
 }
 
-// --- Decision: absolute paths only; no op reads the working directory ----
+// --- Decision: a relative path resolves against the injected working ------
+// --- directory; no op reads the process's ---------------------------------
 
-fn test_a_relative_path_is_refused_as_invalid_input(case: &Case) {
+fn test_a_relative_path_resolves_against_the_working_directory(case: &Case) {
+    // The case's working directory is `case.base`, never the process's:
+    // what a relative path names is found by its absolute spelling there.
     let fs = &case.fs;
-    let rel = Path::new("relative/file");
-    let abs = case.at("x");
-    let invalid = |r: std::io::Result<()>, op: &str| {
-        let e = r.expect_err(op);
-        assert_eq!(e.kind(), ErrorKind::InvalidInput, "{op}: {e}");
-    };
-    invalid(fs.read(rel).map(drop), "read");
-    invalid(fs.read_to_string(rel).map(drop), "read_to_string");
-    invalid(
-        fs.write_atomic(rel, b"x", Perms::Exact(Mode::FILE)),
-        "write_atomic",
+    let rel = Path::new;
+    fs.create_dir_all(rel("sub/deeper"), Mode::DIR).unwrap();
+    assert_eq!(fs.metadata(&case.at("sub/deeper")).unwrap().kind, Kind::Dir);
+
+    fs.write_atomic(rel("sub/file"), b"relative", Perms::Exact(Mode::FILE))
+        .unwrap();
+    assert_eq!(fs.read(&case.at("sub/file")).unwrap(), b"relative");
+    assert_eq!(fs.read_to_string(rel("sub/file")).unwrap(), "relative");
+    assert_eq!(fs.read(rel("sub/file")).unwrap(), b"relative");
+    assert_eq!(fs.metadata(rel("sub/file")).unwrap().len, 8);
+    assert_eq!(
+        fs.symlink_metadata(rel("sub/file")).unwrap().kind,
+        Kind::File
     );
-    invalid(fs.open(rel, Open::Read).map(drop), "open");
-    invalid(fs.create_dir_all(rel, Mode::DIR), "create_dir_all");
-    invalid(fs.remove_file(rel), "remove_file");
-    invalid(fs.remove_dir_all(rel), "remove_dir_all");
-    invalid(fs.rename(rel, &abs), "rename from");
-    invalid(fs.rename(&abs, rel), "rename to");
-    invalid(fs.set_permissions(rel, Mode::FILE), "set_permissions");
-    invalid(fs.read_dir(rel).map(drop), "read_dir");
-    invalid(fs.metadata(rel).map(drop), "metadata");
-    invalid(fs.symlink_metadata(rel).map(drop), "symlink_metadata");
-    invalid(fs.exists(rel).map(drop), "exists");
-    invalid(fs.canonicalize(rel).map(drop), "canonicalize");
-    invalid(fs.symlink_dir(&abs, rel), "symlink_dir link");
-    invalid(fs.read_link(rel).map(drop), "read_link");
-    invalid(fs.make_temp_dir(rel, "t").map(drop), "make_temp_dir");
-    invalid(fs.real_path(rel).map(drop), "real_path");
+    assert!(fs.exists(rel("sub/file")).unwrap());
+    let file = fs.open(rel("sub/file"), Open::Read).unwrap();
+    assert!(fs.same_file(&file, rel("sub/file")).unwrap());
+    assert_eq!(
+        fs.canonicalize(rel("sub/./deeper/../file")).unwrap(),
+        case.at("sub/file")
+    );
+    assert_eq!(
+        fs.real_path(rel("sub/file")).unwrap(),
+        fs.real_path(&case.at("sub/file")).unwrap()
+    );
+
+    fs.rename(rel("sub/file"), rel("sub/moved")).unwrap();
+    assert_eq!(fs.read(&case.at("sub/moved")).unwrap(), b"relative");
+    fs.remove_file(rel("sub/moved")).unwrap();
+    assert!(!fs.exists(&case.at("sub/moved")).unwrap());
+
+    let entries = fs.read_dir(rel("sub")).unwrap();
+    let want = [Entry {
+        name: "deeper".into(),
+        kind: Kind::Dir,
+    }];
+    assert_eq!(entries, want);
+    fs.symlink_dir(&case.at("sub/deeper"), rel("link")).unwrap();
+    assert_eq!(fs.read_link(rel("link")).unwrap(), case.at("sub/deeper"));
+
+    let made = fs.make_temp_dir(rel("sub"), "t-").unwrap();
+    assert_eq!(made.parent(), Some(case.at("sub").as_path()));
+    assert_eq!(fs.metadata(&made).unwrap().kind, Kind::Dir);
+
+    fs.remove_dir_all(rel("sub")).unwrap();
+    assert!(!fs.exists(&case.at("sub")).unwrap());
+}
+
+#[cfg(unix)]
+fn test_a_relative_path_sets_permissions_in_the_working_directory(case: &Case) {
+    let path = case.write("file", b"x");
+    case.fs
+        .set_permissions(Path::new("file"), Mode::from_bits(0o640))
+        .unwrap();
+    assert_eq!(
+        case.fs.metadata(&path).unwrap().mode,
+        Some(Mode::from_bits(0o640))
+    );
 }
 
 // --- Decision: errors are io::Error with the OS's own kinds ---------------
@@ -224,6 +257,18 @@ fn test_keep_or_keeps_an_existing_files_mode_and_gives_a_new_one_its_own(case: &
         case.fs.metadata(&authored).unwrap().mode,
         Some(Mode::from_bits(0o640))
     );
+}
+
+#[cfg(unix)]
+fn test_keep_or_refuses_a_file_whose_mode_it_cannot_read(case: &Case) {
+    // A link to itself: its mode cannot be read, and the write must not
+    // guess one and replace the link.
+    let path = case.at("loop");
+    case.fs.symlink_dir(&path, &path).unwrap();
+    case.fs
+        .write_atomic(&path, b"x", Perms::KeepOr(Mode::FILE))
+        .unwrap_err();
+    assert_eq!(case.fs.symlink_metadata(&path).unwrap().kind, Kind::Symlink);
 }
 
 // --- Decision: open hands back a std File (locks, appended logs) ----------
@@ -408,6 +453,9 @@ fn test_set_permissions_sets_the_mode_exactly(case: &Case) {
 
 // --- Decision: links read back as made; canonical paths are the caller's --
 
+// Unix only: a Windows directory link is a junction, which names its
+// target absolutely.
+#[cfg(unix)]
 fn test_a_relative_link_reads_back_as_written_and_is_followed(case: &Case) {
     case.dir("real");
     let link = case.at("alias");
@@ -477,8 +525,34 @@ fn test_real_path_is_where_std_finds_what_the_seam_wrote(case: &Case) {
     assert_eq!(case.fs.read(&case.at("later.db")).unwrap(), b"made by std");
 }
 
+// --- Decision: same_file tells a handle's file from what is at a path now --
+
+fn test_same_file_is_true_for_the_file_at_the_path(case: &Case) {
+    let path = case.write("lock", b"x");
+    let other = case.write("other", b"x");
+    let file = case.fs.open(&path, Open::Read).unwrap();
+    assert!(case.fs.same_file(&file, &path).unwrap());
+    assert!(!case.fs.same_file(&file, &other).unwrap());
+}
+
+fn test_same_file_is_false_once_a_rename_replaces_the_file(case: &Case) {
+    let path = case.write("lock", b"old");
+    let file = case.fs.open(&path, Open::Read).unwrap();
+    let next = case.write("lock.next", b"new");
+    case.fs.rename(&next, &path).unwrap();
+    assert!(!case.fs.same_file(&file, &path).unwrap());
+}
+
+fn test_same_file_with_nothing_at_the_path_is_not_found(case: &Case) {
+    let path = case.write("lock", b"x");
+    let file = case.fs.open(&path, Open::Read).unwrap();
+    case.fs.remove_file(&path).unwrap();
+    let e = case.fs.same_file(&file, &path).unwrap_err();
+    assert_eq!(e.kind(), ErrorKind::NotFound);
+}
+
 contract!(
-    test_a_relative_path_is_refused_as_invalid_input,
+    test_a_relative_path_resolves_against_the_working_directory,
     test_what_is_missing_is_not_found,
     test_text_that_is_not_utf8_is_invalid_data,
     test_an_atomic_write_replaces_the_file_whole_and_leaves_no_temporary,
@@ -495,20 +569,25 @@ contract!(
     test_metadata_reports_the_length_and_when_it_was_modified,
     test_exists_follows_links_and_a_dangling_one_is_absent,
     test_rename_replaces_a_file_at_the_target,
-    test_a_relative_link_reads_back_as_written_and_is_followed,
     test_an_absolute_link_reads_back_as_written_and_is_followed,
     test_read_link_of_what_is_not_a_link_is_invalid_input,
     test_canonicalize_resolves_links_and_dots_into_the_callers_path,
     test_a_temporary_directory_is_new_empty_and_in_its_parent,
     test_real_path_is_where_std_finds_what_the_seam_wrote,
+    test_same_file_is_true_for_the_file_at_the_path,
+    test_same_file_is_false_once_a_rename_replaces_the_file,
+    test_same_file_with_nothing_at_the_path_is_not_found,
 );
 
 #[cfg(unix)]
 contract!(
     test_an_exact_mode_is_applied_past_the_umask,
     test_keep_or_keeps_an_existing_files_mode_and_gives_a_new_one_its_own,
+    test_keep_or_refuses_a_file_whose_mode_it_cannot_read,
     test_a_created_file_gets_its_mode,
     test_a_private_directory_is_owner_only,
     test_a_file_with_any_execute_bit_is_executable,
     test_set_permissions_sets_the_mode_exactly,
+    test_a_relative_path_sets_permissions_in_the_working_directory,
+    test_a_relative_link_reads_back_as_written_and_is_followed,
 );

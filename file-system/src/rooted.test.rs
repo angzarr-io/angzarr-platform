@@ -20,19 +20,62 @@ fn caller(unix: &str, windows: &str) -> PathBuf {
 
 // --- Construction --------------------------------------------------------
 
+fn top() -> PathBuf {
+    caller("/", r"C:\")
+}
+
 #[test]
 fn test_a_root_must_be_an_absolute_existing_directory() {
-    let e = Rooted::new(Path::new("relative/root")).unwrap_err();
+    let e = Rooted::new(Path::new("relative/root"), &top()).unwrap_err();
     assert_eq!(e.kind(), ErrorKind::InvalidInput);
     let temp = tempfile::tempdir().unwrap();
-    let e = Rooted::new(&temp.path().join("missing")).unwrap_err();
+    let e = Rooted::new(&temp.path().join("missing"), &top()).unwrap_err();
     assert_eq!(e.kind(), ErrorKind::NotFound);
+}
+
+#[test]
+fn test_a_working_directory_must_be_absolute() {
+    let temp = tempfile::tempdir().unwrap();
+    let rel = Path::new("relative/cwd");
+    let e = Rooted::new(temp.path(), rel).unwrap_err();
+    assert_eq!(e.kind(), ErrorKind::InvalidInput);
+    let e = Rooted::temp_with_cwd(rel).unwrap_err();
+    assert_eq!(e.kind(), ErrorKind::InvalidInput);
+}
+
+#[test]
+fn test_a_temporary_root_works_at_the_callers_top() {
+    let fs = Rooted::temp().unwrap();
+    assert_eq!(
+        fs.real_path(Path::new("x")).unwrap(),
+        fs.real_path(&top().join("x")).unwrap()
+    );
+}
+
+#[test]
+fn test_the_working_directory_is_rerooted_and_cleaned_like_any_path() {
+    let cwd = caller("/home/u/../v", r"C:\home\u\..\v");
+    let fs = Rooted::temp_with_cwd(&cwd).unwrap();
+    let want = if cfg!(windows) {
+        under(fs.root(), &["C", "home", "v", "x"])
+    } else {
+        under(fs.root(), &["home", "v", "x"])
+    };
+    assert_eq!(fs.real_path(Path::new("x")).unwrap(), want);
+    // A relative `..` stops at the root as an absolute one does.
+    let climbed = fs.real_path(Path::new("../../../../y")).unwrap();
+    let want = if cfg!(windows) {
+        under(fs.root(), &["C", "y"])
+    } else {
+        under(fs.root(), &["y"])
+    };
+    assert_eq!(climbed, want);
 }
 
 #[test]
 fn test_a_root_is_held_with_its_links_resolved() {
     let temp = tempfile::tempdir().unwrap();
-    let fs = Rooted::new(temp.path()).unwrap();
+    let fs = Rooted::new(temp.path(), &top()).unwrap();
     assert_eq!(fs.root(), std::fs::canonicalize(temp.path()).unwrap());
 }
 
@@ -197,7 +240,7 @@ fn test_a_root_reached_through_a_link_still_never_shows() {
     std::fs::create_dir(&real_root).unwrap();
     let linked_root = temp.path().join("linked");
     std::os::unix::fs::symlink(&real_root, &linked_root).unwrap();
-    let fs = Rooted::new(&linked_root).unwrap();
+    let fs = Rooted::new(&linked_root, &top()).unwrap();
     fs.create_dir_all(Path::new("/a/b"), Mode::DIR).unwrap();
     assert_eq!(
         fs.canonicalize(Path::new("/a/./b")).unwrap(),
@@ -209,12 +252,13 @@ fn test_a_root_reached_through_a_link_still_never_shows() {
 #[test]
 fn test_canonicalizing_out_of_the_root_is_refused() {
     // A link the seam would not make (planted by std) pointing outside the
-    // root: its resolution has no caller's path, so it is an error rather
+    // root: its resolution has no caller's path, so it is refused rather
     // than the real path leaking.
     let outside = tempfile::tempdir().unwrap();
     let fs = Rooted::temp().unwrap();
     fs.create_dir_all(Path::new("/w"), Mode::DIR).unwrap();
     let link = fs.real_path(Path::new("/w/out")).unwrap();
     std::os::unix::fs::symlink(outside.path(), &link).unwrap();
-    assert!(fs.canonicalize(Path::new("/w/out")).is_err());
+    let e = fs.canonicalize(Path::new("/w/out")).unwrap_err();
+    assert_eq!(e.kind(), ErrorKind::PermissionDenied);
 }
