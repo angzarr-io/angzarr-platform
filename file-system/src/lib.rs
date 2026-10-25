@@ -18,6 +18,13 @@
 //!   its root, except through [`Fs::real_path`], which exists for what
 //!   must open a path itself (SQLite, advisory locks).
 
+// The workspace's clippy.toml forbids file I/O outside this crate: every
+// other crate reaches the filesystem through an `Fs`.
+#![allow(
+    clippy::disallowed_methods,
+    reason = "this crate is the file-system seam: the one place std::fs and tempfile are called"
+)]
+
 mod os;
 mod real;
 mod rooted;
