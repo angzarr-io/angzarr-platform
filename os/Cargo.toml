@@ -1,0 +1,27 @@
+[package]
+name = "os"
+version = "0.1.0"
+description = "Everything that differs between operating systems, in one place: path, environment and search-path logic for every flavor (testable on any host), and the host's syscalls behind one trait made once at startup"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Advisory locks: flock on unix, LockFileEx on Windows.
+fs4.workspace = true
+# The stop signal: SIGINT/SIGTERM on unix, Ctrl-C on Windows, as a future
+# made on the caller's runtime.
+tokio = { workspace = true, features = ["signal"] }
+typed-path.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+junction.workspace = true
+same-file.workspace = true
+
+[dev-dependencies]
+mutants.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true
