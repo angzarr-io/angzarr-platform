@@ -15,7 +15,7 @@ use std::path::{Component, Components, Path, PathBuf};
 
 use tempfile::TempDir;
 
-use crate::{real, Entry, Fs, Meta, Mode, Open, Perms};
+use crate::{real, CwdError, Entry, Fs, Meta, Mode, Open, Perms};
 
 /// The real filesystem under `root`: every path the caller gives is
 /// re-rooted there, and every path it is given back is the caller's.
@@ -52,6 +52,15 @@ impl Rooted {
             cwd,
             _temp: None,
         })
+    }
+
+    /// The filesystem re-rooted under `root` (as [`Rooted::new`]) with no
+    /// working directory, it could not be read (`why`): a relative path
+    /// fails with the [`CwdError`] it makes of `why`; an absolute one is
+    /// re-rooted as ever.
+    pub fn without_cwd(root: &Path, why: io::Error) -> io::Result<Rooted> {
+        let _ = (root, why);
+        todo!("hold the CwdError where the working directory would be")
     }
 
     /// The filesystem re-rooted under a new temporary directory, removed
@@ -107,6 +116,10 @@ impl Rooted {
 }
 
 impl Fs for Rooted {
+    fn cwd(&self) -> Result<&Path, CwdError> {
+        Ok(&self.cwd)
+    }
+
     fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
         std::fs::read(self.reroot(path)?)
     }

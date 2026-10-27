@@ -13,7 +13,10 @@
 //! - a RELATIVE path resolves against the working directory the
 //!   filesystem was made with ([`Os::new`], [`Rooted::new`]), an absolute
 //!   path the caller gives (the composition root reads the process's once):
-//!   no operation reads the process's working directory itself.
+//!   no operation reads the process's working directory itself. One made
+//!   over a working directory that could not be read ([`Os::without_cwd`],
+//!   [`Rooted::without_cwd`]) has none: [`Fs::cwd`] says why, a relative
+//!   path fails with that [`CwdError`], and an absolute one is unaffected.
 //! - a path given or returned is the CALLER'S path: [`Rooted`] never shows
 //!   its root, except through [`Fs::real_path`], which exists for what
 //!   must open a path itself (SQLite, advisory locks).
@@ -25,6 +28,7 @@
     reason = "this crate is the file-system seam: the one place std::fs and tempfile are called"
 )]
 
+mod error;
 mod os;
 mod real;
 mod rooted;
@@ -34,6 +38,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+pub use error::{diagnostic_samples, CwdError, EN_US};
 pub use os::Os;
 pub use rooted::Rooted;
 
@@ -127,6 +132,11 @@ pub struct Entry {
 /// against the filesystem's working directory; see the crate's
 /// documentation.
 pub trait Fs: Send + Sync + std::fmt::Debug {
+    /// The working directory relative paths resolve against, the caller's
+    /// path; or why there is none (it could not be read when this was
+    /// made). Asks the OS nothing: it is what the filesystem was made with.
+    fn cwd(&self) -> Result<&Path, CwdError>;
+
     /// The file's bytes.
     fn read(&self, path: &Path) -> io::Result<Vec<u8>>;
 

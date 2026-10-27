@@ -1,10 +1,10 @@
 //! What only the real filesystem does: name each path as given.
 
-use std::io::ErrorKind;
+use std::io::{self, ErrorKind};
 use std::path::Path;
 
 use super::Os;
-use crate::Fs;
+use crate::{CwdError, Fs, Mode, Perms};
 
 fn top() -> &'static Path {
     Path::new(if cfg!(windows) { r"C:\" } else { "/" })
@@ -14,6 +14,56 @@ fn top() -> &'static Path {
 fn test_a_working_directory_must_be_absolute() {
     let e = Os::new(Path::new("relative/cwd")).unwrap_err();
     assert_eq!(e.kind(), ErrorKind::InvalidInput);
+}
+
+/// Why a working directory could not be read, as the OS might say.
+fn gone() -> io::Error {
+    io::Error::new(ErrorKind::NotFound, "gone")
+}
+
+/// The [`CwdError`] an `io::Error` carries, if it carries one.
+fn cwd_error(e: &io::Error) -> Option<&CwdError> {
+    e.get_ref()
+        .and_then(|inner| inner.downcast_ref::<CwdError>())
+}
+
+#[test]
+fn test_the_working_directory_is_the_one_given() {
+    assert_eq!(Os::new(top()).unwrap().cwd(), Ok(top()));
+}
+
+#[test]
+fn test_an_os_over_an_unreadable_working_directory_says_why() {
+    assert_eq!(
+        Os::without_cwd(gone()).cwd(),
+        Err(CwdError {
+            reason: "gone".to_string()
+        })
+    );
+}
+
+#[test]
+fn test_a_relative_path_without_a_working_directory_fails_with_why() {
+    let os = Os::without_cwd(gone());
+    let e = os.read(Path::new("x")).unwrap_err();
+    assert_eq!(
+        cwd_error(&e),
+        Some(&CwdError {
+            reason: "gone".to_string()
+        }),
+        "{e}"
+    );
+    let e = os.real_path(Path::new("x")).unwrap_err();
+    assert!(cwd_error(&e).is_some(), "{e}");
+}
+
+#[test]
+fn test_an_absolute_path_without_a_working_directory_is_as_given() {
+    let os = Os::without_cwd(gone());
+    let temp = tempfile::tempdir().unwrap();
+    let x = temp.path().join("x");
+    os.write_atomic(&x, b"x", Perms::Exact(Mode::FILE)).unwrap();
+    assert_eq!(os.read(&x).unwrap(), b"x");
 }
 
 #[test]

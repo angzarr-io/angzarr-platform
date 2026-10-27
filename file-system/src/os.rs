@@ -5,7 +5,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::rooted::Caller;
-use crate::{real, Entry, Fs, Meta, Mode, Open, Perms};
+use crate::{real, CwdError, Entry, Fs, Meta, Mode, Open, Perms};
 
 /// The real filesystem: `std::fs` on each path as given, a relative one
 /// joined to the working directory it was made with.
@@ -21,6 +21,15 @@ impl Os {
         Ok(Os {
             cwd: absolute(cwd.to_path_buf())?,
         })
+    }
+
+    /// The real filesystem with no working directory, the process's could
+    /// not be read (`why`, as `std::env::current_dir` failed): a relative
+    /// path fails with the [`CwdError`] it makes of `why`; an absolute one
+    /// is as given.
+    pub fn without_cwd(why: io::Error) -> Os {
+        let _ = why;
+        todo!("hold the CwdError where the working directory would be")
     }
 
     /// `path` as given, or joined to the working directory when relative.
@@ -43,6 +52,10 @@ fn absolute(path: PathBuf) -> io::Result<PathBuf> {
 }
 
 impl Fs for Os {
+    fn cwd(&self) -> Result<&Path, CwdError> {
+        Ok(&self.cwd)
+    }
+
     fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
         std::fs::read(self.at(path)?)
     }

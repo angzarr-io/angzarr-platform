@@ -3,11 +3,11 @@
 //! These reach past the seam (std on the real paths) to see where things
 //! landed.
 
-use std::io::ErrorKind;
+use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
 use super::Rooted;
-use crate::{Fs, Mode, Perms};
+use crate::{CwdError, Fs, Mode, Perms};
 
 /// `parts` joined under `root`.
 fn under(root: &Path, parts: &[&str]) -> PathBuf {
@@ -41,6 +41,71 @@ fn test_a_working_directory_must_be_absolute() {
     assert_eq!(e.kind(), ErrorKind::InvalidInput);
     let e = Rooted::temp_with_cwd(rel).unwrap_err();
     assert_eq!(e.kind(), ErrorKind::InvalidInput);
+}
+
+// --- The working directory -----------------------------------------------
+
+/// Why a working directory could not be read, as the OS might say.
+fn gone() -> io::Error {
+    io::Error::new(ErrorKind::NotFound, "gone")
+}
+
+/// The [`CwdError`] an `io::Error` carries, if it carries one.
+fn cwd_error(e: &io::Error) -> Option<&CwdError> {
+    e.get_ref()
+        .and_then(|inner| inner.downcast_ref::<CwdError>())
+}
+
+#[test]
+fn test_the_working_directory_is_the_callers_path() {
+    let cwd = caller("/home/u", r"C:\home\u");
+    let fs = Rooted::temp_with_cwd(&cwd).unwrap();
+    assert_eq!(fs.cwd(), Ok(cwd.as_path()));
+}
+
+#[test]
+fn test_a_filesystem_over_an_unreadable_working_directory_says_why() {
+    let owner = Rooted::temp().unwrap();
+    let fs = Rooted::without_cwd(owner.root(), gone()).unwrap();
+    assert_eq!(
+        fs.cwd(),
+        Err(CwdError {
+            reason: "gone".to_string()
+        })
+    );
+}
+
+#[test]
+fn test_a_root_without_a_working_directory_must_still_be_absolute() {
+    let e = Rooted::without_cwd(Path::new("relative/root"), gone()).unwrap_err();
+    assert_eq!(e.kind(), ErrorKind::InvalidInput);
+}
+
+#[test]
+fn test_a_relative_path_without_a_working_directory_fails_with_why() {
+    let owner = Rooted::temp().unwrap();
+    let fs = Rooted::without_cwd(owner.root(), gone()).unwrap();
+    let e = fs
+        .write_atomic(Path::new("x"), b"x", Perms::Exact(Mode::FILE))
+        .unwrap_err();
+    assert_eq!(
+        cwd_error(&e),
+        Some(&CwdError {
+            reason: "gone".to_string()
+        }),
+        "{e}"
+    );
+    let e = fs.read(Path::new("x")).unwrap_err();
+    assert!(cwd_error(&e).is_some(), "{e}");
+}
+
+#[test]
+fn test_an_absolute_path_without_a_working_directory_is_rerooted_as_ever() {
+    let owner = Rooted::temp().unwrap();
+    let fs = Rooted::without_cwd(owner.root(), gone()).unwrap();
+    let x = top().join("x");
+    fs.write_atomic(&x, b"x", Perms::Exact(Mode::FILE)).unwrap();
+    assert_eq!(owner.read(&x).unwrap(), b"x");
 }
 
 #[test]

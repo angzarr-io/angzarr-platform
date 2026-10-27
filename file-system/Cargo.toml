@@ -8,11 +8,13 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+annals-diagnostic.workspace = true
 # write_atomic's staged file, make_temp_dir, and Rooted::temp: a re-rooted
 # filesystem that owns (and removes) its root.
 tempfile.workspace = true
 
 [dev-dependencies]
+fluent-syntax.workspace = true
 mutants.workspace = true
 
 [target.'cfg(windows)'.dependencies]
