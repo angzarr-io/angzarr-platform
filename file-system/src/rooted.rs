@@ -23,8 +23,8 @@ use crate::{real, CwdError, Entry, Fs, Meta, Mode, Open, Perms};
 pub struct Rooted {
     root: PathBuf,
     /// The caller's working directory: a caller's path, re-rooted like any
-    /// other.
-    cwd: PathBuf,
+    /// other; or why there is none.
+    cwd: Result<PathBuf, CwdError>,
     /// The root's owner, when [`Rooted::temp`] made it: removed on drop.
     _temp: Option<TempDir>,
 }
@@ -40,6 +40,23 @@ impl Rooted {
             return Err(not_absolute(root));
         }
         let cwd = Caller::parse(cwd)?.path();
+        Rooted::over(root, Ok(cwd))
+    }
+
+    /// The filesystem re-rooted under `root` (as [`Rooted::new`]) with no
+    /// working directory, it could not be read (`why`): a relative path
+    /// fails with the [`CwdError`] it makes of `why`; an absolute one is
+    /// re-rooted as ever.
+    pub fn without_cwd(root: &Path, why: io::Error) -> io::Result<Rooted> {
+        if !root.is_absolute() {
+            return Err(not_absolute(root));
+        }
+        Rooted::over(root, Err(CwdError::of(&why)))
+    }
+
+    /// The filesystem re-rooted under `root`, an absolute path, working in
+    /// `cwd`.
+    fn over(root: &Path, cwd: Result<PathBuf, CwdError>) -> io::Result<Rooted> {
         let root = std::fs::canonicalize(root)?;
         if !root.is_dir() {
             return Err(io::Error::new(
@@ -52,15 +69,6 @@ impl Rooted {
             cwd,
             _temp: None,
         })
-    }
-
-    /// The filesystem re-rooted under `root` (as [`Rooted::new`]) with no
-    /// working directory, it could not be read (`why`): a relative path
-    /// fails with the [`CwdError`] it makes of `why`; an absolute one is
-    /// re-rooted as ever.
-    pub fn without_cwd(root: &Path, why: io::Error) -> io::Result<Rooted> {
-        let _ = (root, why);
-        todo!("hold the CwdError where the working directory would be")
     }
 
     /// The filesystem re-rooted under a new temporary directory, removed
@@ -77,7 +85,7 @@ impl Rooted {
         let temp = TempDir::new()?;
         Ok(Rooted {
             root: std::fs::canonicalize(temp.path())?,
-            cwd,
+            cwd: Ok(cwd),
             _temp: Some(temp),
         })
     }
@@ -90,7 +98,11 @@ impl Rooted {
     /// The caller's `path`, resolved against the working directory and
     /// cleaned.
     fn caller(&self, path: &Path) -> io::Result<Caller> {
-        Caller::parse(&self.cwd.join(path))
+        if path.is_absolute() {
+            return Caller::parse(path);
+        }
+        let cwd = self.cwd.as_ref().map_err(CwdError::to_io)?;
+        Caller::parse(&cwd.join(path))
     }
 
     /// Where the caller's `path` is under the root.
@@ -117,7 +129,7 @@ impl Rooted {
 
 impl Fs for Rooted {
     fn cwd(&self) -> Result<&Path, CwdError> {
-        Ok(&self.cwd)
+        self.cwd.as_deref().map_err(Clone::clone)
     }
 
     fn read(&self, path: &Path) -> io::Result<Vec<u8>> {

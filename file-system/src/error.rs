@@ -1,6 +1,7 @@
 //! Why a filesystem has no working directory.
 
 use std::fmt;
+use std::io;
 
 use annals_diagnostic::{Arg, Diagnostic};
 
@@ -12,6 +13,20 @@ use annals_diagnostic::{Arg, Diagnostic};
 pub struct CwdError {
     /// Why it could not be read, as the OS said.
     pub reason: String,
+}
+
+impl CwdError {
+    /// Why the working directory could not be read, as the OS said.
+    pub(crate) fn of(why: &io::Error) -> CwdError {
+        CwdError {
+            reason: why.to_string(),
+        }
+    }
+
+    /// This, as the error an operation on a relative path fails with.
+    pub(crate) fn to_io(&self) -> io::Error {
+        io::Error::new(io::ErrorKind::NotFound, self.clone())
+    }
 }
 
 impl fmt::Display for CwdError {

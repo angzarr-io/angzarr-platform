@@ -11,7 +11,8 @@ use crate::{real, CwdError, Entry, Fs, Meta, Mode, Open, Perms};
 /// joined to the working directory it was made with.
 #[derive(Clone, Debug)]
 pub struct Os {
-    cwd: PathBuf,
+    /// The working directory, or why there is none.
+    cwd: Result<PathBuf, CwdError>,
 }
 
 impl Os {
@@ -19,7 +20,7 @@ impl Os {
     /// absolute path (`InvalidInput` otherwise).
     pub fn new(cwd: &Path) -> io::Result<Os> {
         Ok(Os {
-            cwd: absolute(cwd.to_path_buf())?,
+            cwd: Ok(absolute(cwd.to_path_buf())?),
         })
     }
 
@@ -28,13 +29,19 @@ impl Os {
     /// path fails with the [`CwdError`] it makes of `why`; an absolute one
     /// is as given.
     pub fn without_cwd(why: io::Error) -> Os {
-        let _ = why;
-        todo!("hold the CwdError where the working directory would be")
+        Os {
+            cwd: Err(CwdError::of(&why)),
+        }
     }
 
-    /// `path` as given, or joined to the working directory when relative.
+    /// `path` as given, or joined to the working directory when relative
+    /// (failing with the [`CwdError`] when there is none).
     fn at(&self, path: &Path) -> io::Result<PathBuf> {
-        absolute(self.cwd.join(path))
+        if path.is_absolute() {
+            return Ok(path.to_path_buf());
+        }
+        let cwd = self.cwd.as_ref().map_err(CwdError::to_io)?;
+        absolute(cwd.join(path))
     }
 }
 
@@ -53,7 +60,7 @@ fn absolute(path: PathBuf) -> io::Result<PathBuf> {
 
 impl Fs for Os {
     fn cwd(&self) -> Result<&Path, CwdError> {
-        Ok(&self.cwd)
+        self.cwd.as_deref().map_err(Clone::clone)
     }
 
     fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
