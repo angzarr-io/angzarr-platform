@@ -5,6 +5,7 @@
 use std::path::{Component, Path, PathBuf};
 
 use file_system::Fs;
+use os::Flavor;
 use sha2::{Digest, Sha256};
 
 use crate::LockError;
@@ -31,12 +32,12 @@ const TAIL_MAX: usize = 96;
 /// The hex digits of the path's SHA-256 a flat name keeps.
 const HASH_LEN: usize = 16;
 
-/// `path` as one bounded file name: the last [`TAIL_MAX`] bytes of it
-/// with `/` as `__` and NTFS's reserved characters escaped, then `__` and
-/// the first [`HASH_LEN`] hex digits of the whole path's SHA-256.
-pub fn flat_name(path: &str) -> String {
-    // Only a platform separator that is not `/` becomes one.
-    let slashed = path.replace(std::path::MAIN_SEPARATOR, "/");
+/// `path` as one bounded file name: `flavor`'s separators as `/`
+/// ([`Flavor::to_slash`]), the last [`TAIL_MAX`] bytes of it with `/` as
+/// `__` and NTFS's reserved characters escaped, then `__` and the first
+/// [`HASH_LEN`] hex digits of the whole slashed path's SHA-256.
+pub fn flat_name(flavor: Flavor, path: &str) -> String {
+    let slashed = flavor.to_slash(path);
     let digest = Sha256::digest(slashed.as_bytes());
     let hash: String = digest
         .iter()
@@ -106,21 +107,22 @@ pub struct Sidecar {
 /// `~/.ctxloom/locks/<FlatName(target)>.lock`, under the reap interlock.
 pub fn sidecar_for(fs: &dyn Fs, home: &Path, target: &Path) -> Sidecar {
     let sessions = clean(&home.join(SESSIONS));
-    let inside = split_harp(&sessions, target).or_else(|| {
+    let flavor = fs.os().flavor();
+    let inside = split_harp(flavor, &sessions, target).or_else(|| {
         // The sessions root as its links resolve too, so a target is
         // inside it whichever spelling of the root it was given under.
         let resolved = fs.canonicalize(&sessions).ok()?;
-        split_harp(&resolved, target)
+        split_harp(flavor, &resolved, target)
     });
     if let Some((harp, rel)) = inside {
-        let name = format!("{}{SUFFIX}", flat_name(&rel));
+        let name = format!("{}{SUFFIX}", flat_name(flavor, &rel));
         return Sidecar {
             lock: sessions.join(harp).join(HARP_LOCKS).join(name),
             interlock: None,
         };
     }
     let dir = clean(&home.join(HOME_LOCKS));
-    let name = format!("{}{SUFFIX}", flat_name(&target.to_string_lossy()));
+    let name = format!("{}{SUFFIX}", flat_name(flavor, &target.to_string_lossy()));
     Sidecar {
         lock: dir.join(name),
         interlock: Some(dir.join(REAP_INTERLOCK)),
@@ -128,10 +130,11 @@ pub fn sidecar_for(fs: &dyn Fs, home: &Path, target: &Path) -> Sidecar {
 }
 
 /// `target` split at the harp directory it lies strictly inside, directly
-/// under `sessions`: the harp, and the rest of the path (slash-separated).
-fn split_harp(sessions: &Path, target: &Path) -> Option<(String, String)> {
-    let root = sessions.to_string_lossy().replace('\\', "/");
-    let target = target.to_string_lossy().replace('\\', "/");
+/// under `sessions`: the harp, and the rest of the path (slash-separated,
+/// as `flavor` separates it: a `\` is a separator on Windows only).
+fn split_harp(flavor: Flavor, sessions: &Path, target: &Path) -> Option<(String, String)> {
+    let root = flavor.to_slash(&sessions.to_string_lossy());
+    let target = flavor.to_slash(&target.to_string_lossy());
     let under = target.strip_prefix(&format!("{}/", root.trim_end_matches('/')))?;
     let (harp, rel) = under.split_once('/')?;
     (!rel.is_empty() && valid_harp(harp)).then(|| (harp.to_string(), rel.to_string()))

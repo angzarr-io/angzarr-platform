@@ -13,9 +13,15 @@
 //! - [`Os`]: the SYSCALLS that differ (modes, directory links, file
 //!   identity, directory sync, advisory locks, the stop signal). One
 //!   implementor per host, in a cfg-gated module, made by the one
-//!   constructor, [`host`], at the composition root and passed down; it
-//!   reports its [`Flavor`] ([`Os::flavor`]), so callers reach the logic
-//!   through it.
+//!   constructor, [`host`]: at the composition root for the real
+//!   filesystem, which holds it (`file_system::Os::new`); the re-rooted
+//!   test filesystem takes the host's itself. Adapters reach it through
+//!   the seam (`Fs::os`), and the logic through its [`Flavor`]
+//!   ([`Os::flavor`]).
+//!
+//! Beside them, [`Top`]: where an absolute path of the compile target
+//! starts (a drive or share on Windows), as `std::path` parses it, for the
+//! file-system seam's re-rooting.
 //!
 //! Nothing outside this crate names `cfg(unix|windows|target_os|..)`,
 //! `cfg!(..)`, `std::os::` or `split_paths` (decision 4): `just lint-os`
@@ -34,6 +40,7 @@
 
 mod flavor;
 mod host;
+mod top;
 
 use std::ffi::OsString;
 use std::fmt;
@@ -45,6 +52,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 pub use flavor::{Flavor, NotUtf8, DEFAULT_PATHEXT};
+pub use top::Top;
 
 /// Permission bits (`0o777` at most). On unix they are the mode. On
 /// Windows, which has no mode bits, they are ignored (an owner-only DACL

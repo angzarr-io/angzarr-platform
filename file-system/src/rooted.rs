@@ -11,16 +11,21 @@
 use std::ffi::OsString;
 use std::fs::File;
 use std::io;
-use std::path::{Component, Components, Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
+use ::os::{Mode, Top};
 use tempfile::TempDir;
 
-use crate::{real, CwdError, Entry, Fs, Meta, Mode, Open, Perms};
+use crate::{real, CwdError, Entry, Fs, Meta, Open, Perms};
 
 /// The real filesystem under `root`: every path the caller gives is
 /// re-rooted there, and every path it is given back is the caller's.
 #[derive(Debug)]
 pub struct Rooted {
+    /// The host's syscalls ([`::os::host`]): re-rooted paths are real
+    /// ones on this host.
+    os: Arc<dyn ::os::Os>,
     root: PathBuf,
     /// The caller's working directory: a caller's path, re-rooted like any
     /// other; or why there is none.
@@ -65,6 +70,7 @@ impl Rooted {
             ));
         }
         Ok(Rooted {
+            os: ::os::host(),
             root,
             cwd,
             _temp: None,
@@ -75,7 +81,7 @@ impl Rooted {
     /// with everything in it when this is dropped: a test's filesystem. Its
     /// working directory is the caller's top (`/`, or `C:\` on Windows).
     pub fn temp() -> io::Result<Rooted> {
-        Rooted::temp_with_cwd(Path::new(if cfg!(windows) { r"C:\" } else { "/" }))
+        Rooted::temp_with_cwd(Path::new(::os::host().flavor().top()))
     }
 
     /// [`Rooted::temp`], working in `cwd`, the caller's absolute path
@@ -84,6 +90,7 @@ impl Rooted {
         let cwd = Caller::parse(cwd)?.path();
         let temp = TempDir::new()?;
         Ok(Rooted {
+            os: ::os::host(),
             root: std::fs::canonicalize(temp.path())?,
             cwd: Ok(cwd),
             _temp: Some(temp),
@@ -132,6 +139,10 @@ impl Fs for Rooted {
         self.cwd.as_deref().map_err(Clone::clone)
     }
 
+    fn os(&self) -> &dyn ::os::Os {
+        &*self.os
+    }
+
     fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
         std::fs::read(self.reroot(path)?)
     }
@@ -141,19 +152,19 @@ impl Fs for Rooted {
     }
 
     fn write_atomic(&self, path: &Path, bytes: &[u8], perms: Perms) -> io::Result<()> {
-        real::write_atomic(&self.reroot(path)?, bytes, perms)
+        real::write_atomic(&*self.os, &self.reroot(path)?, bytes, perms)
     }
 
     fn open(&self, path: &Path, how: Open) -> io::Result<File> {
-        real::open(&self.reroot(path)?, how)
+        real::open(&*self.os, &self.reroot(path)?, how)
     }
 
     fn create_dir_all(&self, path: &Path, mode: Mode) -> io::Result<()> {
-        real::create_dir_all(&self.reroot(path)?, mode)
+        real::create_dir_all(&*self.os, &self.reroot(path)?, mode)
     }
 
     fn remove_file(&self, path: &Path) -> io::Result<()> {
-        real::remove_file(&self.reroot(path)?)
+        self.os.remove_link(&self.reroot(path)?)
     }
 
     fn remove_dir_all(&self, path: &Path) -> io::Result<()> {
@@ -165,7 +176,7 @@ impl Fs for Rooted {
     }
 
     fn set_permissions(&self, path: &Path, mode: Mode) -> io::Result<()> {
-        real::set_permissions(&self.reroot(path)?, mode)
+        self.os.set_mode(&self.reroot(path)?, mode)
     }
 
     fn read_dir(&self, path: &Path) -> io::Result<Vec<Entry>> {
@@ -173,11 +184,11 @@ impl Fs for Rooted {
     }
 
     fn metadata(&self, path: &Path) -> io::Result<Meta> {
-        real::metadata(&self.reroot(path)?)
+        real::metadata(&*self.os, &self.reroot(path)?)
     }
 
     fn symlink_metadata(&self, path: &Path) -> io::Result<Meta> {
-        real::symlink_metadata(&self.reroot(path)?)
+        real::symlink_metadata(&*self.os, &self.reroot(path)?)
     }
 
     fn exists(&self, path: &Path) -> io::Result<bool> {
@@ -204,11 +215,11 @@ impl Fs for Rooted {
         } else {
             target.to_path_buf()
         };
-        real::symlink_dir(&on_disk, &self.reroot(link)?)
+        self.os.link_dir(&on_disk, &self.reroot(link)?)
     }
 
     fn read_link(&self, link: &Path) -> io::Result<PathBuf> {
-        let on_disk = real::read_link(&self.reroot(link)?)?;
+        let on_disk = self.os.read_link(&self.reroot(link)?)?;
         if on_disk.is_absolute() {
             self.unroot(&on_disk)
         } else {
@@ -225,7 +236,7 @@ impl Fs for Rooted {
     }
 
     fn same_file(&self, file: &File, path: &Path) -> io::Result<bool> {
-        real::same_file(file, &self.reroot(path)?)
+        self.os.same_file(file, &self.reroot(path)?)
     }
 }
 
@@ -272,97 +283,6 @@ impl Caller {
         self.parts
             .iter()
             .fold(self.top.under(root), |p, c| p.join(c))
-    }
-}
-
-/// The top a caller's path starts from: `/` on unix.
-#[cfg(unix)]
-struct Top;
-
-#[cfg(unix)]
-impl Top {
-    /// The top `components` start from, taken from them.
-    fn take(components: &mut Components) -> Option<Top> {
-        matches!(components.next(), Some(Component::RootDir)).then_some(Top)
-    }
-
-    /// The top named by the first of a path's `components` under the root,
-    /// taken from them.
-    fn from_real(_components: &mut Components) -> Option<Top> {
-        Some(Top)
-    }
-
-    fn caller(&self) -> PathBuf {
-        PathBuf::from("/")
-    }
-
-    fn under(&self, root: &Path) -> PathBuf {
-        root.to_path_buf()
-    }
-}
-
-/// The top a caller's path starts from on Windows: a drive (`C:\`, held
-/// upper-case) or a share (`\\server\share\`), verbatim or not.
-#[cfg(windows)]
-enum Top {
-    Disk(u8),
-    Unc(OsString, OsString),
-}
-
-// Compiled only on Windows, where no runner tests it yet: its mutants
-// cannot be killed here.
-#[cfg(windows)]
-#[cfg_attr(test, mutants::skip)]
-impl Top {
-    fn take(components: &mut Components) -> Option<Top> {
-        use std::path::Prefix;
-        let Some(Component::Prefix(prefix)) = components.next() else {
-            return None;
-        };
-        let top = match prefix.kind() {
-            Prefix::Disk(d) | Prefix::VerbatimDisk(d) => Top::Disk(d.to_ascii_uppercase()),
-            Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => {
-                Top::Unc(server.to_owned(), share.to_owned())
-            }
-            _ => return None,
-        };
-        matches!(components.next(), Some(Component::RootDir)).then_some(top)
-    }
-
-    fn from_real(components: &mut Components) -> Option<Top> {
-        let mut next = || match components.next() {
-            Some(Component::Normal(part)) => Some(part.to_owned()),
-            _ => None,
-        };
-        let first = next()?;
-        if first == "UNC" {
-            return Some(Top::Unc(next()?, next()?));
-        }
-        match first.as_encoded_bytes() {
-            [d] if d.is_ascii_uppercase() => Some(Top::Disk(*d)),
-            _ => None,
-        }
-    }
-
-    fn caller(&self) -> PathBuf {
-        match self {
-            Top::Disk(d) => PathBuf::from(format!("{}:\\", char::from(*d))),
-            Top::Unc(server, share) => {
-                let mut top = OsString::from(r"\\");
-                top.push(server);
-                top.push(r"\");
-                top.push(share);
-                top.push(r"\");
-                PathBuf::from(top)
-            }
-        }
-    }
-
-    fn under(&self, root: &Path) -> PathBuf {
-        match self {
-            Top::Disk(d) => root.join(char::from(*d).to_string()),
-            Top::Unc(server, share) => root.join("UNC").join(server).join(share),
-        }
     }
 }
 

@@ -38,37 +38,11 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use ::os::Mode;
+
 pub use error::{diagnostic_samples, CwdError, EN_US};
 pub use os::Os;
 pub use rooted::Rooted;
-
-/// Permission bits (`0o777` at most). On unix they are the mode. On
-/// Windows they are ignored (owner-only there, Go's DACL, is not yet
-/// ported).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Mode(u32);
-
-impl Mode {
-    /// A file only its owner may read or write.
-    pub const PRIVATE_FILE: Mode = Mode(0o600);
-    /// A directory only its owner may enter.
-    pub const PRIVATE_DIR: Mode = Mode(0o700);
-    /// A file anyone may read, its owner write.
-    pub const FILE: Mode = Mode(0o644);
-    /// A directory anyone may enter, its owner write.
-    pub const DIR: Mode = Mode(0o755);
-
-    /// The mode with these permission bits; anything past `0o777` is
-    /// dropped.
-    pub const fn from_bits(bits: u32) -> Mode {
-        Mode(bits & 0o777)
-    }
-
-    /// The permission bits.
-    pub const fn bits(self) -> u32 {
-        self.0
-    }
-}
 
 /// The permissions an atomic write leaves the file with.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -112,9 +86,10 @@ pub struct Meta {
     pub kind: Kind,
     /// In bytes.
     pub len: u64,
-    /// A file with any execute bit (unix); any file (elsewhere).
+    /// A file the host would run: any execute bit on unix, any file on
+    /// Windows ([`::os::Flavor::is_executable`]).
     pub executable: bool,
-    /// The permission bits on unix; `None` elsewhere.
+    /// The permission bits on unix; `None` elsewhere ([`::os::Os::mode_of`]).
     pub mode: Option<Mode>,
     pub modified: SystemTime,
 }
@@ -136,6 +111,11 @@ pub trait Fs: Send + Sync + std::fmt::Debug {
     /// path; or why there is none (it could not be read when this was
     /// made). Asks the OS nothing: it is what the filesystem was made with.
     fn cwd(&self) -> Result<&Path, CwdError>;
+
+    /// The host's syscalls this filesystem runs on, and through
+    /// [`::os::Os::flavor`] the logic that differs between operating
+    /// systems: what an adapter holding only an `Fs` needs of the OS.
+    fn os(&self) -> &dyn ::os::Os;
 
     /// The file's bytes.
     fn read(&self, path: &Path) -> io::Result<Vec<u8>>;

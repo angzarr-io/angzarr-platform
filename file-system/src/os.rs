@@ -3,33 +3,41 @@
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use ::os::Mode;
 
 use crate::rooted::Caller;
-use crate::{real, CwdError, Entry, Fs, Meta, Mode, Open, Perms};
+use crate::{real, CwdError, Entry, Fs, Meta, Open, Perms};
 
 /// The real filesystem: `std::fs` on each path as given, a relative one
-/// joined to the working directory it was made with.
+/// joined to the working directory it was made with, on the host's
+/// syscalls ([`::os::host`]).
 #[derive(Clone, Debug)]
 pub struct Os {
+    /// The host's syscalls.
+    os: Arc<dyn ::os::Os>,
     /// The working directory, or why there is none.
     cwd: Result<PathBuf, CwdError>,
 }
 
 impl Os {
-    /// The real filesystem, resolving relative paths against `cwd`, an
-    /// absolute path (`InvalidInput` otherwise).
-    pub fn new(cwd: &Path) -> io::Result<Os> {
+    /// The real filesystem on `os`, resolving relative paths against
+    /// `cwd`, an absolute path (`InvalidInput` otherwise).
+    pub fn new(os: Arc<dyn ::os::Os>, cwd: &Path) -> io::Result<Os> {
         Ok(Os {
+            os,
             cwd: Ok(absolute(cwd.to_path_buf())?),
         })
     }
 
-    /// The real filesystem with no working directory, the process's could
-    /// not be read (`why`, as `std::env::current_dir` failed): a relative
-    /// path fails with the [`CwdError`] it makes of `why`; an absolute one
-    /// is as given.
-    pub fn without_cwd(why: io::Error) -> Os {
+    /// The real filesystem on `os` with no working directory, the
+    /// process's could not be read (`why`, as `std::env::current_dir`
+    /// failed): a relative path fails with the [`CwdError`] it makes of
+    /// `why`; an absolute one is as given.
+    pub fn without_cwd(os: Arc<dyn ::os::Os>, why: io::Error) -> Os {
         Os {
+            os,
             cwd: Err(CwdError::of(&why)),
         }
     }
@@ -63,6 +71,10 @@ impl Fs for Os {
         self.cwd.as_deref().map_err(Clone::clone)
     }
 
+    fn os(&self) -> &dyn ::os::Os {
+        &*self.os
+    }
+
     fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
         std::fs::read(self.at(path)?)
     }
@@ -72,19 +84,19 @@ impl Fs for Os {
     }
 
     fn write_atomic(&self, path: &Path, bytes: &[u8], perms: Perms) -> io::Result<()> {
-        real::write_atomic(&self.at(path)?, bytes, perms)
+        real::write_atomic(&*self.os, &self.at(path)?, bytes, perms)
     }
 
     fn open(&self, path: &Path, how: Open) -> io::Result<File> {
-        real::open(&self.at(path)?, how)
+        real::open(&*self.os, &self.at(path)?, how)
     }
 
     fn create_dir_all(&self, path: &Path, mode: Mode) -> io::Result<()> {
-        real::create_dir_all(&self.at(path)?, mode)
+        real::create_dir_all(&*self.os, &self.at(path)?, mode)
     }
 
     fn remove_file(&self, path: &Path) -> io::Result<()> {
-        real::remove_file(&self.at(path)?)
+        self.os.remove_link(&self.at(path)?)
     }
 
     fn remove_dir_all(&self, path: &Path) -> io::Result<()> {
@@ -96,7 +108,7 @@ impl Fs for Os {
     }
 
     fn set_permissions(&self, path: &Path, mode: Mode) -> io::Result<()> {
-        real::set_permissions(&self.at(path)?, mode)
+        self.os.set_mode(&self.at(path)?, mode)
     }
 
     fn read_dir(&self, path: &Path) -> io::Result<Vec<Entry>> {
@@ -104,11 +116,11 @@ impl Fs for Os {
     }
 
     fn metadata(&self, path: &Path) -> io::Result<Meta> {
-        real::metadata(&self.at(path)?)
+        real::metadata(&*self.os, &self.at(path)?)
     }
 
     fn symlink_metadata(&self, path: &Path) -> io::Result<Meta> {
-        real::symlink_metadata(&self.at(path)?)
+        real::symlink_metadata(&*self.os, &self.at(path)?)
     }
 
     fn exists(&self, path: &Path) -> io::Result<bool> {
@@ -124,11 +136,11 @@ impl Fs for Os {
     }
 
     fn symlink_dir(&self, target: &Path, link: &Path) -> io::Result<()> {
-        real::symlink_dir(target, &self.at(link)?)
+        self.os.link_dir(target, &self.at(link)?)
     }
 
     fn read_link(&self, link: &Path) -> io::Result<PathBuf> {
-        real::read_link(&self.at(link)?)
+        self.os.read_link(&self.at(link)?)
     }
 
     fn make_temp_dir(&self, parent: &Path, prefix: &str) -> io::Result<PathBuf> {
@@ -140,7 +152,7 @@ impl Fs for Os {
     }
 
     fn same_file(&self, file: &File, path: &Path) -> io::Result<bool> {
-        real::same_file(file, &self.at(path)?)
+        self.os.same_file(file, &self.at(path)?)
     }
 }
 

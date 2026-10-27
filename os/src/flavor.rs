@@ -1,7 +1,9 @@
 //! The logic that differs between operating systems, for every flavor on
 //! every host.
 
+use std::ffi::OsStr;
 use std::fmt;
+use std::path::PathBuf;
 
 use typed_path::{Utf8WindowsComponent, Utf8WindowsPath, Utf8WindowsPrefix};
 
@@ -39,11 +41,17 @@ impl Flavor {
     /// unix, USERPROFILE on Windows (as Go's `os.UserHomeDir`, so Rust and
     /// Go taskloom share one `~/.ctxloom`). A variable set empty is unset.
     pub fn home_dir(self, var: &dyn Fn(&str) -> Option<String>) -> Option<String> {
-        let name = match self {
+        var(self.home_var()).filter(|home| !home.is_empty())
+    }
+
+    /// The variable [`Flavor::home_dir`] reads: HOME on unix, USERPROFILE
+    /// on Windows. For a caller holding the environment as the process
+    /// gives it (not UTF-8, perhaps), which reads it without loss.
+    pub fn home_var(self) -> &'static str {
+        match self {
             Flavor::Unix => "HOME",
             Flavor::Windows => "USERPROFILE",
-        };
-        var(name).filter(|home| !home.is_empty())
+        }
     }
 
     /// The key an environment variable's name is compared by: itself on
@@ -82,6 +90,23 @@ impl Flavor {
             }
         };
         entries.into_iter().filter(|e| !e.is_empty()).collect()
+    }
+
+    /// PATH's directories as the process holds PATH (which need not be
+    /// UTF-8): [`Flavor::split_search_path`] when it is UTF-8. When it is
+    /// not, it was encoded by the host, whose own split (`split_paths`)
+    /// keeps every entry whole, empty ones dropped all the same.
+    pub fn split_search_path_os(self, path: &OsStr) -> Vec<PathBuf> {
+        match path.to_str() {
+            Some(text) => self
+                .split_search_path(text)
+                .into_iter()
+                .map(PathBuf::from)
+                .collect(),
+            None => std::env::split_paths(path)
+                .filter(|dir| !dir.as_os_str().is_empty())
+                .collect(),
+        }
     }
 
     /// The file names a command is looked up by in each PATH directory:

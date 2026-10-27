@@ -284,3 +284,37 @@ fn test_an_empty_pathext_entry_is_no_extension() {
         "a PATHEXT naming no extension is as good as empty"
     );
 }
+
+#[test]
+fn test_a_path_that_is_not_utf8_splits_whole_entries_and_drops_empty_ones() {
+    let host = crate::host().flavor();
+    let separator = if host == Unix { ":" } else { ";" };
+    let odd = crate::not_unicode("/odd");
+    let mut path = odd.clone();
+    for part in [separator, separator, "/b"] {
+        path.push(part);
+    }
+    assert_eq!(
+        host.split_search_path_os(&path),
+        [std::path::PathBuf::from(odd), "/b".into()]
+    );
+}
+
+#[test]
+fn test_a_utf8_path_splits_by_the_flavors_rules() {
+    let path = std::ffi::OsStr::new(r#""C:\a;b";;C:\c"#);
+    assert_eq!(
+        Windows.split_search_path_os(path),
+        [std::path::PathBuf::from(r"C:\a;b"), r"C:\c".into()]
+    );
+    assert_eq!(
+        Unix.split_search_path_os(std::ffi::OsStr::new("/a::/b")),
+        [std::path::PathBuf::from("/a"), "/b".into()]
+    );
+}
+
+#[test]
+fn test_the_home_variable_each_flavor_reads() {
+    assert_eq!(Unix.home_var(), "HOME");
+    assert_eq!(Windows.home_var(), "USERPROFILE");
+}

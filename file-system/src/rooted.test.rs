@@ -7,7 +7,13 @@ use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
 use super::Rooted;
-use crate::{CwdError, Fs, Mode, Perms};
+use ::os::{host, Flavor, Mode};
+
+use crate::{CwdError, Fs, Perms};
+
+fn on_windows() -> bool {
+    host().flavor() == Flavor::Windows
+}
 
 /// `parts` joined under `root`.
 fn under(root: &Path, parts: &[&str]) -> PathBuf {
@@ -15,7 +21,7 @@ fn under(root: &Path, parts: &[&str]) -> PathBuf {
 }
 
 fn caller(unix: &str, windows: &str) -> PathBuf {
-    PathBuf::from(if cfg!(windows) { windows } else { unix })
+    PathBuf::from(if on_windows() { windows } else { unix })
 }
 
 // --- Construction --------------------------------------------------------
@@ -121,7 +127,7 @@ fn test_a_temporary_root_works_at_the_callers_top() {
 fn test_the_working_directory_is_rerooted_and_cleaned_like_any_path() {
     let cwd = caller("/home/u/../v", r"C:\home\u\..\v");
     let fs = Rooted::temp_with_cwd(&cwd).unwrap();
-    let want = if cfg!(windows) {
+    let want = if on_windows() {
         under(fs.root(), &["C", "home", "v", "x"])
     } else {
         under(fs.root(), &["home", "v", "x"])
@@ -129,7 +135,7 @@ fn test_the_working_directory_is_rerooted_and_cleaned_like_any_path() {
     assert_eq!(fs.real_path(Path::new("x")).unwrap(), want);
     // A relative `..` stops at the root as an absolute one does.
     let climbed = fs.real_path(Path::new("../../../../y")).unwrap();
-    let want = if cfg!(windows) {
+    let want = if on_windows() {
         under(fs.root(), &["C", "y"])
     } else {
         under(fs.root(), &["y"])
@@ -172,9 +178,11 @@ fn test_two_roots_see_nothing_of_each_other() {
 
 // --- Decision: an absolute path lands under the root ------------------------
 
-#[cfg(unix)]
 #[test]
 fn test_an_absolute_path_lands_at_the_same_path_under_the_root() {
+    if on_windows() {
+        return;
+    }
     let fs = Rooted::temp().unwrap();
     let real = fs
         .real_path(Path::new("/home/u/.ctxloom/state.db"))
@@ -185,17 +193,21 @@ fn test_an_absolute_path_lands_at_the_same_path_under_the_root() {
     );
 }
 
-#[cfg(windows)]
 #[test]
 fn test_a_drive_path_lands_under_its_drive_letter() {
+    if !on_windows() {
+        return;
+    }
     let fs = Rooted::temp().unwrap();
     let real = fs.real_path(Path::new(r"C:\Users\u\x")).unwrap();
     assert_eq!(real, under(fs.root(), &["C", "Users", "u", "x"]));
 }
 
-#[cfg(windows)]
 #[test]
 fn test_a_drive_letter_of_either_case_is_one_directory() {
+    if !on_windows() {
+        return;
+    }
     let fs = Rooted::temp().unwrap();
     assert_eq!(
         fs.real_path(Path::new(r"c:\x")).unwrap(),
@@ -203,9 +215,11 @@ fn test_a_drive_letter_of_either_case_is_one_directory() {
     );
 }
 
-#[cfg(windows)]
 #[test]
 fn test_a_unc_path_lands_under_unc_server_share() {
+    if !on_windows() {
+        return;
+    }
     let fs = Rooted::temp().unwrap();
     let real = fs.real_path(Path::new(r"\\server\share\dir\x")).unwrap();
     assert_eq!(
@@ -214,9 +228,11 @@ fn test_a_unc_path_lands_under_unc_server_share() {
     );
 }
 
-#[cfg(windows)]
 #[test]
 fn test_a_verbatim_path_lands_where_its_plain_spelling_does() {
+    if !on_windows() {
+        return;
+    }
     let fs = Rooted::temp().unwrap();
     assert_eq!(
         fs.real_path(Path::new(r"\\?\C:\x")).unwrap(),
@@ -235,7 +251,7 @@ fn test_dot_dot_stops_at_the_root() {
     let fs = Rooted::temp().unwrap();
     let climbing = caller("/../../etc/passwd", r"C:\..\..\etc\passwd");
     let landed = fs.real_path(&climbing).unwrap();
-    let want = if cfg!(windows) {
+    let want = if on_windows() {
         under(fs.root(), &["C", "etc", "passwd"])
     } else {
         under(fs.root(), &["etc", "passwd"])
@@ -295,16 +311,18 @@ fn test_a_temporary_directory_is_named_as_the_caller_names_it() {
     assert!(fs.real_path(&made).unwrap().is_dir());
 }
 
-#[cfg(unix)]
 #[test]
 fn test_a_root_reached_through_a_link_still_never_shows() {
+    if on_windows() {
+        return;
+    }
     // macOS's temporary directories are under /var, a link to
     // /private/var: the root as given and as resolved both stay hidden.
     let temp = tempfile::tempdir().unwrap();
     let real_root = temp.path().join("root");
     std::fs::create_dir(&real_root).unwrap();
     let linked_root = temp.path().join("linked");
-    std::os::unix::fs::symlink(&real_root, &linked_root).unwrap();
+    host().link_dir(&real_root, &linked_root).unwrap();
     let fs = Rooted::new(&linked_root, &top()).unwrap();
     fs.create_dir_all(Path::new("/a/b"), Mode::DIR).unwrap();
     assert_eq!(
@@ -313,9 +331,11 @@ fn test_a_root_reached_through_a_link_still_never_shows() {
     );
 }
 
-#[cfg(unix)]
 #[test]
 fn test_canonicalizing_out_of_the_root_is_refused() {
+    if on_windows() {
+        return;
+    }
     // A link the seam would not make (planted by std) pointing outside the
     // root: its resolution has no caller's path, so it is refused rather
     // than the real path leaking.
@@ -323,7 +343,7 @@ fn test_canonicalizing_out_of_the_root_is_refused() {
     let fs = Rooted::temp().unwrap();
     fs.create_dir_all(Path::new("/w"), Mode::DIR).unwrap();
     let link = fs.real_path(Path::new("/w/out")).unwrap();
-    std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+    host().link_dir(outside.path(), &link).unwrap();
     let e = fs.canonicalize(Path::new("/w/out")).unwrap_err();
     assert_eq!(e.kind(), ErrorKind::PermissionDenied);
 }

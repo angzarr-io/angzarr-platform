@@ -8,11 +8,12 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use file_system::{Fs, Mode, Open, Perms, Rooted};
+use file_system::{Fs, Open, Perms, Rooted};
+use os::{host, Flavor, LockKind, Mode};
 
 use super::{
-    lock, lock_file, lock_within, path, take_current, take_once, until, Kind, LockError, Waits,
-    LOCK_ATTEMPTS, LOCK_WAIT,
+    lock, lock_file, lock_within, path, record_line, take_current, take_once, until, Kind,
+    LockError, Waits, LOCK_ATTEMPTS, LOCK_WAIT,
 };
 
 /// Open and lock the lock file at `path` exclusively, as another process
@@ -21,20 +22,23 @@ fn hold(fs: &dyn Fs, path: &Path) -> File {
     fs.create_dir_all(path.parent().unwrap(), Mode::DIR)
         .unwrap();
     let file = fs.open(path, Open::Create(Mode::FILE)).unwrap();
-    fs4::FileExt::lock(&file).unwrap();
+    assert!(
+        fs.os().try_lock(&file, LockKind::Exclusive).unwrap(),
+        "nobody else holds {path:?}"
+    );
     file
 }
 
 /// Whether some holder keeps `path` from being locked exclusively now.
 fn held(fs: &dyn Fs, path: &Path) -> bool {
     let file = fs.open(path, Open::Read).unwrap();
-    fs4::FileExt::try_lock(&file).is_err()
+    !fs.os().try_lock(&file, LockKind::Exclusive).unwrap()
 }
 
 /// Whether some exclusive holder keeps `path` from being locked shared now.
 fn held_exclusively(fs: &dyn Fs, path: &Path) -> bool {
     let file = fs.open(path, Open::Read).unwrap();
-    fs4::FileExt::try_lock_shared(&file).is_err()
+    !fs.os().try_lock(&file, LockKind::Shared).unwrap()
 }
 
 /// A test's own filesystem, and the directory its locks go in.
@@ -114,9 +118,11 @@ fn test_a_lock_path_that_is_not_a_regular_file_is_refused() {
     ));
 }
 
-#[cfg(unix)]
 #[test]
 fn test_a_fifo_at_the_lock_path_is_refused_without_opening_it() {
+    if host().flavor() != Flavor::Unix {
+        return;
+    }
     // Opening a FIFO blocks until a writer comes: it is refused first.
     let (fs, dir) = rooted();
     let fifo = dir.join("x.lock");
@@ -323,6 +329,45 @@ fn test_a_lock_file_it_creates_records_what_it_guards_and_one_there_is_kept() {
     let bare = dir.join("bare.lock");
     drop(lock_within(&fs, &bare, Duration::ZERO).unwrap());
     assert_eq!(fs.read(&bare).unwrap(), b"");
+}
+
+#[test]
+fn test_a_record_is_the_paths_utf8_and_one_with_none_is_refused_on_windows() {
+    let path = PathBuf::from(os::not_unicode("/home/u/"));
+    // Unix records a path's bytes as they are, UTF-8 or not, as Go does.
+    let mut bytes = path.as_os_str().as_encoded_bytes().to_vec();
+    bytes.push(b'\n');
+    assert_eq!(record_line(Flavor::Unix, &path), Ok(bytes));
+    assert_eq!(
+        record_line(Flavor::Windows, Path::new(r"C:\Users\u\.claude.json")),
+        Ok(b"C:\\Users\\u\\.claude.json\n".to_vec())
+    );
+    // Windows records UTF-8: text with none is refused, naming the path.
+    assert_eq!(
+        record_line(Flavor::Windows, &path),
+        Err(LockError::NotUtf8 {
+            path: path.display().to_string()
+        })
+    );
+}
+
+#[test]
+fn test_a_path_the_host_cannot_record_is_refused_before_any_lock_file_is_made() {
+    if host().flavor() != Flavor::Windows {
+        return;
+    }
+    let (fs, dir) = rooted();
+    let lock_path = dir.join("x.lock");
+    let guarded = PathBuf::from(os::not_unicode(r"C:\"));
+    let refused = lock(
+        &fs,
+        &lock_path,
+        Kind::Exclusive,
+        Some(&guarded),
+        &mut never(),
+    );
+    assert!(matches!(refused, Err(LockError::NotUtf8 { .. })));
+    assert!(!fs.exists(&lock_path).unwrap());
 }
 
 // --------------------------------------------- a foreign file's sidecar

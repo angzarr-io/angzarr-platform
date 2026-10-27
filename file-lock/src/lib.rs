@@ -1,7 +1,8 @@
 //! ctxloom's advisory file locks, taken the one way every ctxloom-family
 //! binary takes them, so binaries take turns on one file. Every lock file
 //! is opened, made and checked through the file-system seam ([`Fs`]); the
-//! lock itself is `flock` on the handle the seam opens.
+//! lock itself is the host's advisory lock ([`os::Os::try_lock`]: `flock`
+//! on unix) on the handle the seam opens.
 //!
 //!
 //! - a lock is `flock(2)` on a lock file (shared or exclusive), created
@@ -27,7 +28,8 @@ use std::io::{ErrorKind, Write};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use file_system::{Fs, Mode, Open};
+use file_system::{Fs, Open};
+use os::{LockKind, Mode};
 
 pub use error::{diagnostic_samples, LockError, EN_US};
 
@@ -146,15 +148,15 @@ pub fn take_once(
         record(fs, lock_path, guarded)?;
     }
     let file = open(fs, lock_path)?;
+    let kind = match kind {
+        Kind::Exclusive => LockKind::Exclusive,
+        Kind::Shared => LockKind::Shared,
+    };
     loop {
-        let tried = match kind {
-            Kind::Exclusive => fs4::FileExt::try_lock(&file),
-            Kind::Shared => fs4::FileExt::try_lock_shared(&file),
-        };
-        match tried {
-            Ok(()) => return Ok(file),
-            Err(fs4::TryLockError::WouldBlock) => pause()?,
-            Err(fs4::TryLockError::Error(e)) => return Err(LockError::io(lock_path, e)),
+        match fs.os().try_lock(&file, kind) {
+            Ok(true) => return Ok(file),
+            Ok(false) => pause()?,
+            Err(e) => return Err(LockError::io(lock_path, e)),
         }
     }
 }
@@ -249,18 +251,33 @@ pub fn lock_file(
 }
 
 /// Create the lock file at `lock_path` recording `guarded` (its path and a
-/// newline) when none is there; one already there is left exactly as it
-/// is.
+/// newline, [`record_line`]) when none is there; one already there is left
+/// exactly as it is.
 fn record(fs: &dyn Fs, lock_path: &Path, guarded: &Path) -> Result<(), LockError> {
+    let line = record_line(fs.os().flavor(), guarded)?;
     let mut file = match fs.open(lock_path, Open::CreateNew(LOCK_FILE_MODE)) {
         Ok(file) => file,
         Err(e) if e.kind() == ErrorKind::AlreadyExists => return Ok(()),
         Err(e) => return Err(LockError::io(lock_path, e)),
     };
-    let mut line = guarded.as_os_str().as_encoded_bytes().to_vec();
-    line.push(b'\n');
     file.write_all(&line)
         .map_err(|e| LockError::io(lock_path, e))
+}
+
+/// The line a lock file records for `guarded` under `flavor`'s rules, as
+/// Go writes it: UTF-8 on Windows (a path with an unpaired surrogate,
+/// which has no UTF-8 spelling, is refused: [`LockError::NotUtf8`]), the
+/// path's bytes on unix; then a newline.
+fn record_line(flavor: os::Flavor, guarded: &Path) -> Result<Vec<u8>, LockError> {
+    let encoded = guarded.as_os_str().as_encoded_bytes();
+    let mut line = flavor
+        .path_record(encoded)
+        .map_err(|_| LockError::NotUtf8 {
+            path: guarded.display().to_string(),
+        })?
+        .to_vec();
+    line.push(b'\n');
+    Ok(line)
 }
 
 /// The lock file at `lock_path`, opened to be locked: read-only when it is

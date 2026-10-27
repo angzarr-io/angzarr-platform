@@ -10,7 +10,8 @@ publish.workspace = true
 [dependencies]
 annals-diagnostic.workspace = true
 file-system.workspace = true
-fs4.workspace = true
+# The advisory lock itself, and how a lock file records a path, per OS.
+os.workspace = true
 sha2.workspace = true
 
 [dev-dependencies]

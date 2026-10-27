@@ -2,9 +2,15 @@
 
 use std::path::{Path, PathBuf};
 
-use file_system::{Fs, Mode, Rooted};
+use file_system::{Fs, Rooted};
+use os::{host, Flavor, Mode};
 
-use super::{absolute, clean, flat_name, sidecar_for, valid_harp, Sidecar};
+use super::{absolute, clean, sidecar_for, split_harp, valid_harp, Sidecar};
+
+/// `path`'s flat name on the host.
+fn flat_name(path: &str) -> String {
+    super::flat_name(host().flavor(), path)
+}
 
 /// A deep directory: its paths' flat names are cut to their tails.
 const DEEP: &str =
@@ -166,9 +172,11 @@ fn test_a_harp_is_one_path_component_with_visible_edges() {
     }
 }
 
-#[cfg(unix)]
 #[test]
 fn test_a_session_file_under_a_linked_sessions_root_names_the_lock_as_home_spells_it() {
+    if host().flavor() != Flavor::Unix {
+        return;
+    }
     let fs = empty();
     let home = Path::new("/home/u");
     let real = Path::new("/elsewhere");
@@ -193,4 +201,31 @@ fn test_a_session_file_under_a_linked_sessions_root_names_the_lock_as_home_spell
     assert!(sidecar_for(&fs, home, Path::new("/x/.mcp.json"))
         .interlock
         .is_some());
+}
+
+#[test]
+fn test_a_backslash_separates_a_session_path_on_windows_only() {
+    let sessions = Path::new("/home/u/.ctxloom/sessions");
+    let target = Path::new("/home/u/.ctxloom/sessions/jolly-mute-magma\\work/x");
+    // On unix a backslash is part of a name, so `jolly-mute-magma\work` is
+    // no harp, and the target is under no session.
+    assert_eq!(split_harp(Flavor::Unix, sessions, target), None);
+    assert_eq!(
+        split_harp(Flavor::Windows, sessions, target),
+        Some(("jolly-mute-magma".to_string(), "work/x".to_string()))
+    );
+}
+
+#[test]
+fn test_a_flat_name_slashes_the_flavors_separators() {
+    use super::flat_name;
+    assert_eq!(
+        flat_name(Flavor::Windows, r"C:\a\b"),
+        flat_name(Flavor::Windows, "C:/a/b")
+    );
+    assert_ne!(
+        flat_name(Flavor::Unix, r"/a\b"),
+        flat_name(Flavor::Unix, "/a/b"),
+        "a backslash is a name's on unix"
+    );
 }

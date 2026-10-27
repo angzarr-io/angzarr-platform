@@ -8,7 +8,14 @@ use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use super::{Entry, Fs, Kind, Mode, Open, Os, Perms, Rooted};
+use ::os::{host, Flavor, Mode};
+
+use super::{Entry, Fs, Kind, Open, Os, Perms, Rooted};
+
+/// Whether the host has unix modes (Windows has none).
+fn has_modes(case: &Case) -> bool {
+    case.fs.os().flavor() == Flavor::Unix
+}
 
 /// A filesystem under test and the absolute directory its test works in.
 struct Case {
@@ -43,7 +50,7 @@ fn os_case() -> Case {
     // /private/var), so canonicalize has nothing of its own to add.
     let base = std::fs::canonicalize(temp.path()).unwrap();
     Case {
-        fs: Arc::new(Os::new(&base).unwrap()),
+        fs: Arc::new(Os::new(host(), &base).unwrap()),
         base,
         _temp: Some(temp),
     }
@@ -52,7 +59,7 @@ fn os_case() -> Case {
 /// A caller's absolute path naming no real directory: only re-rooting
 /// makes it writable.
 fn caller_base() -> PathBuf {
-    if cfg!(windows) {
+    if host().flavor() == Flavor::Windows {
         PathBuf::from(r"C:\work")
     } else {
         PathBuf::from("/work")
@@ -92,7 +99,7 @@ macro_rules! contract {
 #[test]
 fn test_an_fs_is_held_as_a_shared_trait_object() {
     fn shared<T: Send + Sync + 'static>(_: &T) {}
-    let os: Arc<dyn Fs> = Arc::new(Os::new(&caller_base()).unwrap());
+    let os: Arc<dyn Fs> = Arc::new(Os::new(host(), &caller_base()).unwrap());
     shared(&os);
 }
 
@@ -151,8 +158,10 @@ fn test_a_relative_path_resolves_against_the_working_directory(case: &Case) {
     assert!(!fs.exists(&case.at("sub")).unwrap());
 }
 
-#[cfg(unix)]
 fn test_a_relative_path_sets_permissions_in_the_working_directory(case: &Case) {
+    if !has_modes(case) {
+        return;
+    }
     let path = case.write("file", b"x");
     case.fs
         .set_permissions(Path::new("file"), Mode::from_bits(0o640))
@@ -220,8 +229,10 @@ fn test_an_atomic_write_does_not_make_its_directory(case: &Case) {
     assert!(!case.fs.exists(&case.at("absent")).unwrap());
 }
 
-#[cfg(unix)]
 fn test_an_exact_mode_is_applied_past_the_umask(case: &Case) {
+    if !has_modes(case) {
+        return;
+    }
     // 0o664 is narrowed by any umask with a group- or other-write bit
     // (the usual 022 gives 0o644), so only a chmod after the create
     // leaves it.
@@ -235,8 +246,10 @@ fn test_an_exact_mode_is_applied_past_the_umask(case: &Case) {
     );
 }
 
-#[cfg(unix)]
 fn test_keep_or_keeps_an_existing_files_mode_and_gives_a_new_one_its_own(case: &Case) {
+    if !has_modes(case) {
+        return;
+    }
     let new = case.at("new");
     case.fs
         .write_atomic(&new, b"x", Perms::KeepOr(Mode::PRIVATE_FILE))
@@ -259,8 +272,10 @@ fn test_keep_or_keeps_an_existing_files_mode_and_gives_a_new_one_its_own(case: &
     );
 }
 
-#[cfg(unix)]
 fn test_keep_or_refuses_a_file_whose_mode_it_cannot_read(case: &Case) {
+    if !has_modes(case) {
+        return;
+    }
     // A link to itself: its mode cannot be read, and the write must not
     // guess one and replace the link.
     let path = case.at("loop");
@@ -317,8 +332,10 @@ fn test_read_opens_an_existing_file_for_reading_only(case: &Case) {
     assert!(file.write_all(b"more").is_err(), "a read handle writes");
 }
 
-#[cfg(unix)]
 fn test_a_created_file_gets_its_mode(case: &Case) {
+    if !has_modes(case) {
+        return;
+    }
     let path = case.at("private");
     drop(
         case.fs
@@ -341,8 +358,10 @@ fn test_create_dir_all_makes_the_parents_and_may_be_repeated(case: &Case) {
     assert_eq!(case.fs.metadata(&case.at("a")).unwrap().kind, Kind::Dir);
 }
 
-#[cfg(unix)]
 fn test_a_private_directory_is_owner_only(case: &Case) {
+    if !has_modes(case) {
+        return;
+    }
     let dir = case.at("private/inner");
     case.fs.create_dir_all(&dir, Mode::PRIVATE_DIR).unwrap();
     for d in [case.at("private"), dir] {
@@ -405,8 +424,10 @@ fn test_metadata_reports_the_length_and_when_it_was_modified(case: &Case) {
     assert!(meta.modified >= before, "{:?} < {before:?}", meta.modified);
 }
 
-#[cfg(unix)]
 fn test_a_file_with_any_execute_bit_is_executable(case: &Case) {
+    if !has_modes(case) {
+        return;
+    }
     let path = case.write("tool", b"#!/bin/sh\n");
     assert!(!case.fs.metadata(&path).unwrap().executable);
     case.fs
@@ -439,8 +460,10 @@ fn test_rename_replaces_a_file_at_the_target(case: &Case) {
     assert!(!case.fs.exists(&from).unwrap());
 }
 
-#[cfg(unix)]
 fn test_set_permissions_sets_the_mode_exactly(case: &Case) {
+    if !has_modes(case) {
+        return;
+    }
     let path = case.write("file", b"x");
     case.fs
         .set_permissions(&path, Mode::from_bits(0o666))
@@ -455,8 +478,10 @@ fn test_set_permissions_sets_the_mode_exactly(case: &Case) {
 
 // Unix only: a Windows directory link is a junction, which names its
 // target absolutely.
-#[cfg(unix)]
 fn test_a_relative_link_reads_back_as_written_and_is_followed(case: &Case) {
+    if case.fs.os().flavor() != Flavor::Unix {
+        return;
+    }
     case.dir("real");
     let link = case.at("alias");
     case.fs.symlink_dir(Path::new("real"), &link).unwrap();
@@ -511,7 +536,7 @@ fn test_absolute_names_a_path_from_the_top_looking_nothing_up(case: &Case) {
         case.at("b"),
         "absolute: cleaned"
     );
-    let top = if cfg!(windows) { r"C:\" } else { "/" };
+    let top = host().flavor().top();
     let above = Path::new(top).join("..").join("x");
     assert_eq!(fs.absolute(&above).unwrap(), Path::new(top).join("x"));
 }
@@ -599,7 +624,6 @@ contract!(
     test_same_file_with_nothing_at_the_path_is_not_found,
 );
 
-#[cfg(unix)]
 contract!(
     test_an_exact_mode_is_applied_past_the_umask,
     test_keep_or_keeps_an_existing_files_mode_and_gives_a_new_one_its_own,

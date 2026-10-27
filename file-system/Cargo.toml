@@ -9,6 +9,9 @@ publish.workspace = true
 
 [dependencies]
 annals-diagnostic.workspace = true
+# The host's syscalls (modes, links, file identity, directory sync) and a
+# path's top: what differs between operating systems lives there.
+os.workspace = true
 # write_atomic's staged file, make_temp_dir, and Rooted::temp: a re-rooted
 # filesystem that owns (and removes) its root.
 tempfile.workspace = true
@@ -16,10 +19,6 @@ tempfile.workspace = true
 [dev-dependencies]
 fluent-syntax.workspace = true
 mutants.workspace = true
-
-[target.'cfg(windows)'.dependencies]
-junction.workspace = true
-same-file.workspace = true
 
 [lints]
 workspace = true

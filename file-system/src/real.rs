@@ -1,20 +1,24 @@
-//! Each operation on an OS path, `std::fs` underneath: what [`crate::Os`]
-//! and [`crate::Rooted`] both do once they know where a caller's path is.
+//! Each operation on an OS path, `std::fs` underneath and the host's
+//! [`Os`] for what differs between operating systems: what
+//! [`crate::Os`] and [`crate::Rooted`] both do once they know where a
+//! caller's path is.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use crate::{Entry, Kind, Meta, Mode, Open, Perms};
+use ::os::{Mode, Os};
 
-pub(crate) fn write_atomic(path: &Path, bytes: &[u8], perms: Perms) -> io::Result<()> {
+use crate::{Entry, Kind, Meta, Open, Perms};
+
+pub(crate) fn write_atomic(os: &dyn Os, path: &Path, bytes: &[u8], perms: Perms) -> io::Result<()> {
     let dir = path
         .parent()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "a path with no directory"))?;
     let mode = match perms {
         Perms::Exact(mode) => mode,
         Perms::KeepOr(mode) => match fs::metadata(path) {
-            Ok(meta) => mode_of(&meta).unwrap_or(mode),
+            Ok(meta) => os.mode_of(&meta).unwrap_or(mode),
             Err(e) if e.kind() == io::ErrorKind::NotFound => mode,
             Err(e) => return Err(e),
         },
@@ -26,13 +30,13 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8], perms: Perms) -> io::Resul
         .suffix(".tmp")
         .tempfile_in(dir)?;
     staged.write_all(bytes)?;
-    set_file_mode(staged.as_file(), mode)?;
+    os.set_file_mode(staged.as_file(), mode)?;
     staged.as_file().sync_all()?;
     staged.persist(path).map_err(|e| e.error)?;
-    sync_dir(dir)
+    os.sync_dir(dir)
 }
 
-pub(crate) fn open(path: &Path, how: Open) -> io::Result<File> {
+pub(crate) fn open(os: &dyn Os, path: &Path, how: Open) -> io::Result<File> {
     let mut options = OpenOptions::new();
     let mode = match how {
         Open::Read => {
@@ -52,55 +56,17 @@ pub(crate) fn open(path: &Path, how: Open) -> io::Result<File> {
             Some(mode)
         }
     };
-    #[cfg(unix)]
     if let Some(mode) = mode {
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, mode.bits());
+        os.open_mode(&mut options, mode);
     }
-    #[cfg(not(unix))]
-    let _ = mode;
     options.open(path)
 }
 
-pub(crate) fn create_dir_all(path: &Path, mode: Mode) -> io::Result<()> {
+pub(crate) fn create_dir_all(os: &dyn Os, path: &Path, mode: Mode) -> io::Result<()> {
     let mut builder = fs::DirBuilder::new();
     builder.recursive(true);
-    #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut builder, mode.bits());
-    #[cfg(not(unix))]
-    let _ = mode;
+    os.dir_mode(&mut builder, mode);
     builder.create(path)
-}
-
-#[cfg(unix)]
-pub(crate) fn remove_file(path: &Path) -> io::Result<()> {
-    fs::remove_file(path)
-}
-
-// Compiled only on Windows, where no runner tests it yet: its mutants
-// cannot be killed here.
-#[cfg(windows)]
-#[cfg_attr(test, mutants::skip)]
-pub(crate) fn remove_file(path: &Path) -> io::Result<()> {
-    use std::os::windows::fs::FileTypeExt;
-    if fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink_dir()) {
-        // A junction is a directory: removing it removes the link alone.
-        return fs::remove_dir(path);
-    }
-    fs::remove_file(path)
-}
-
-pub(crate) fn set_permissions(path: &Path, mode: Mode) -> io::Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(mode.bits()))
-    }
-    #[cfg(not(unix))]
-    {
-        // Modes are ignored off unix; only what is missing is refused.
-        let _ = mode;
-        fs::metadata(path).map(drop)
-    }
 }
 
 pub(crate) fn read_dir(path: &Path) -> io::Result<Vec<Entry>> {
@@ -117,46 +83,12 @@ pub(crate) fn read_dir(path: &Path) -> io::Result<Vec<Entry>> {
     Ok(entries)
 }
 
-pub(crate) fn metadata(path: &Path) -> io::Result<Meta> {
-    meta(&fs::metadata(path)?)
+pub(crate) fn metadata(os: &dyn Os, path: &Path) -> io::Result<Meta> {
+    meta(os, &fs::metadata(path)?)
 }
 
-pub(crate) fn symlink_metadata(path: &Path) -> io::Result<Meta> {
-    meta(&fs::symlink_metadata(path)?)
-}
-
-/// Make `link` a link to the directory `target`, written as given.
-#[cfg(unix)]
-pub(crate) fn symlink_dir(target: &Path, link: &Path) -> io::Result<()> {
-    std::os::unix::fs::symlink(target, link)
-}
-
-/// Make `link` a junction to the directory `target`: a junction names its
-/// target absolutely, so a relative one is resolved against `link`'s
-/// directory.
-// Compiled only on Windows, where no runner tests it yet: its mutants
-// cannot be killed here.
-#[cfg(windows)]
-#[cfg_attr(test, mutants::skip)]
-pub(crate) fn symlink_dir(target: &Path, link: &Path) -> io::Result<()> {
-    let parent = link.parent().unwrap_or(Path::new(""));
-    junction::create(parent.join(target), link)
-}
-
-#[cfg(unix)]
-pub(crate) fn read_link(link: &Path) -> io::Result<PathBuf> {
-    fs::read_link(link)
-}
-
-// Compiled only on Windows, where no runner tests it yet: its mutants
-// cannot be killed here.
-#[cfg(windows)]
-#[cfg_attr(test, mutants::skip)]
-pub(crate) fn read_link(link: &Path) -> io::Result<PathBuf> {
-    if !fs::symlink_metadata(link)?.file_type().is_symlink() {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a link"));
-    }
-    junction::get_target(link)
+pub(crate) fn symlink_metadata(os: &dyn Os, path: &Path) -> io::Result<Meta> {
+    meta(os, &fs::symlink_metadata(path)?)
 }
 
 pub(crate) fn make_temp_dir(parent: &Path, prefix: &str) -> io::Result<PathBuf> {
@@ -166,29 +98,13 @@ pub(crate) fn make_temp_dir(parent: &Path, prefix: &str) -> io::Result<PathBuf> 
         .keep())
 }
 
-#[cfg(unix)]
-pub(crate) fn same_file(file: &File, path: &Path) -> io::Result<bool> {
-    use std::os::unix::fs::MetadataExt;
-    let (held, there) = (file.metadata()?, fs::metadata(path)?);
-    Ok(held.dev() == there.dev() && held.ino() == there.ino())
-}
-
-// Compiled only on Windows, where no runner tests it yet: its mutants
-// cannot be killed here.
-#[cfg(windows)]
-#[cfg_attr(test, mutants::skip)]
-pub(crate) fn same_file(file: &File, path: &Path) -> io::Result<bool> {
-    let there = same_file::Handle::from_path(path)?;
-    Ok(same_file::Handle::from_file(file.try_clone()?)? == there)
-}
-
-fn meta(meta: &fs::Metadata) -> io::Result<Meta> {
+fn meta(os: &dyn Os, meta: &fs::Metadata) -> io::Result<Meta> {
     let kind = kind_of(meta.file_type());
-    let mode = mode_of(meta);
+    let mode = os.mode_of(meta);
     Ok(Meta {
         kind,
         len: meta.len(),
-        executable: kind == Kind::File && mode.is_none_or(|m| m.bits() & 0o111 != 0),
+        executable: kind == Kind::File && os.flavor().is_executable(mode),
         mode,
         modified: meta.modified()?,
     })
@@ -203,47 +119,5 @@ fn kind_of(file_type: fs::FileType) -> Kind {
         Kind::File
     } else {
         Kind::Other
-    }
-}
-
-fn mode_of(meta: &fs::Metadata) -> Option<Mode> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        Some(Mode::from_bits(meta.permissions().mode()))
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = meta;
-        None
-    }
-}
-
-fn set_file_mode(file: &File, mode: Mode) -> io::Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(fs::Permissions::from_mode(mode.bits()))
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (file, mode);
-        Ok(())
-    }
-}
-
-/// Make a rename in `dir` durable: sync the directory (unix; a no-op on
-/// Windows, where a directory cannot be opened to sync).
-// Untestable: durability across a crash is not observable from a test.
-#[cfg_attr(test, mutants::skip)]
-fn sync_dir(dir: &Path) -> io::Result<()> {
-    #[cfg(unix)]
-    {
-        File::open(dir)?.sync_all()
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = dir;
-        Ok(())
     }
 }
