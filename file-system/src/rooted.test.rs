@@ -147,7 +147,14 @@ fn test_the_working_directory_is_rerooted_and_cleaned_like_any_path() {
 fn test_a_root_is_held_with_its_links_resolved() {
     let temp = tempfile::tempdir().unwrap();
     let fs = Rooted::new(temp.path(), &top()).unwrap();
-    assert_eq!(fs.root(), std::fs::canonicalize(temp.path()).unwrap());
+    let resolved = std::fs::canonicalize(temp.path()).unwrap();
+    let plain = host().flavor().display_path(resolved.to_str().unwrap());
+    assert_eq!(fs.root(), Path::new(&plain));
+    assert!(
+        !fs.root().to_string_lossy().starts_with(r"\\?\"),
+        "no verbatim prefix: {:?}",
+        fs.root()
+    );
 }
 
 #[test]

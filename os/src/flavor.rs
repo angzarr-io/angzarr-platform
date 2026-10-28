@@ -44,6 +44,18 @@ impl Flavor {
         var(self.home_var()).filter(|home| !home.is_empty())
     }
 
+    /// The variables a process needs to start and run at all, kept by
+    /// whatever runs one with its environment otherwise cleared (a test
+    /// isolating the binary): none on unix; on Windows the system's
+    /// directories and the temporary one, without which a process cannot
+    /// find its system libraries or start its sockets.
+    pub fn startup_vars(self) -> &'static [&'static str] {
+        match self {
+            Flavor::Unix => &[],
+            Flavor::Windows => &["SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "TEMP", "TMP"],
+        }
+    }
+
     /// The variable [`Flavor::home_dir`] reads: HOME on unix, USERPROFILE
     /// on Windows. For a caller holding the environment as the process
     /// gives it (not UTF-8, perhaps), which reads it without loss.
@@ -137,6 +149,16 @@ impl Flavor {
             .iter()
             .map(|ext| format!("{command}{ext}"))
             .collect()
+    }
+
+    /// The file name a program `command` is installed as, so a search of
+    /// PATH ([`Flavor::candidates`]) finds it: the command itself on unix;
+    /// with `.exe` on Windows.
+    pub fn program_file(self, command: &str) -> String {
+        match self {
+            Flavor::Unix => command.to_string(),
+            Flavor::Windows => format!("{command}.exe"),
+        }
     }
 
     /// Whether a regular file with this mode can be run: any execute bit on
@@ -233,6 +255,24 @@ impl Flavor {
         match self {
             Flavor::Unix => "/",
             Flavor::Windows => r"C:\",
+        }
+    }
+
+    /// `path`, an absolute path spelled the unix way (`/a/b`), as this
+    /// flavor spells it from [`Flavor::top`]: unchanged on unix; on
+    /// Windows from `C:\` with `\` separators (`C:\a\b`). For a test's
+    /// fixture paths, written once and absolute on every host.
+    ///
+    /// # Panics
+    ///
+    /// When `path` does not start with `/`: a fixture is absolute.
+    pub fn from_top(self, path: &str) -> String {
+        let rest = path
+            .strip_prefix('/')
+            .unwrap_or_else(|| panic!("not a path from the top: {path:?}"));
+        match self {
+            Flavor::Unix => path.to_string(),
+            Flavor::Windows => format!("{}{}", self.top(), rest.replace('/', "\\")),
         }
     }
 

@@ -44,7 +44,7 @@ fn held_exclusively(fs: &dyn Fs, path: &Path) -> bool {
 /// A test's own filesystem, and the directory its locks go in.
 fn rooted() -> (Rooted, PathBuf) {
     let fs = Rooted::temp().unwrap();
-    let dir = PathBuf::from("/locks");
+    let dir = os::fixture("/locks");
     fs.create_dir_all(&dir, Mode::DIR).unwrap();
     (fs, dir)
 }
@@ -140,11 +140,15 @@ fn test_a_fifo_at_the_lock_path_is_refused_without_opening_it() {
 #[test]
 fn test_a_handle_that_is_not_a_regular_file_is_refused() {
     let (fs, dir) = rooted();
-    let handle = fs.open(&dir, Open::Read).unwrap();
-    assert!(matches!(
-        super::require_regular(&handle, &dir),
-        Err(LockError::NotRegular { .. })
-    ));
+    // A directory opens as a handle only on unix: Windows refuses to open
+    // one as a file at all (access denied), before any check of ours.
+    if host().flavor() == Flavor::Unix {
+        let handle = fs.open(&dir, Open::Read).unwrap();
+        assert!(matches!(
+            super::require_regular(&handle, &dir),
+            Err(LockError::NotRegular { .. })
+        ));
+    }
     let file = dir.join("f");
     write(&fs, &file, b"");
     super::require_regular(&fs.open(&file, Open::Read).unwrap(), &file).unwrap();
@@ -318,8 +322,10 @@ fn test_a_lock_file_it_creates_records_what_it_guards_and_one_there_is_kept() {
         &mut never(),
     )
     .unwrap();
-    assert_eq!(fs.read(&lock_path).unwrap(), b"/home/u/.claude.json\n");
     drop(locked);
+    // Read once let go: Windows' locks are mandatory, so a held lock
+    // file cannot be read, by this process or another.
+    assert_eq!(fs.read(&lock_path).unwrap(), b"/home/u/.claude.json\n");
     // Another taker's file is left exactly as it is.
     write(&fs, &lock_path, b"/elsewhere\n");
     let mut wait = until(&lock_path, LOCK_WAIT);
@@ -381,14 +387,14 @@ impl Home {
     /// Working in `/work`, where the file to guard is.
     fn new() -> Home {
         Home {
-            fs: Rooted::temp_with_cwd(Path::new("/work")).unwrap(),
+            fs: Rooted::temp_with_cwd(&os::fixture("/work")).unwrap(),
         }
     }
     fn home(&self) -> PathBuf {
-        PathBuf::from("/home/u")
+        os::fixture("/home/u")
     }
     fn target(&self) -> PathBuf {
-        PathBuf::from("/work/.mcp.json")
+        os::fixture("/work/.mcp.json")
     }
     fn sidecar(&self) -> path::Sidecar {
         path::sidecar_for(&self.fs, &self.home(), &self.target())
@@ -414,12 +420,14 @@ fn test_a_file_lock_holds_its_sidecar_and_the_reap_interlock_shared_until_droppe
         !held_exclusively(&at.fs, &interlock),
         "the interlock is only shared"
     );
+    drop(locked);
+    // Read once let go: Windows' locks are mandatory, so a held lock
+    // file cannot be read, by this process or another.
     assert_eq!(
         at.fs.read_to_string(&sidecar.lock).unwrap(),
         format!("{}\n", at.target().display()),
         "the sidecar records the file it guards"
     );
-    drop(locked);
     assert!(released(&at.fs, &sidecar.lock));
     assert!(released(&at.fs, &interlock));
 }
@@ -435,11 +443,13 @@ fn test_a_relative_target_names_the_lock_its_absolute_path_does() {
     )
     .unwrap();
     assert!(held(&at.fs, &at.sidecar().lock));
+    drop(locked);
+    // Read once let go: Windows' locks are mandatory, so a held lock
+    // file cannot be read, by this process or another.
     assert_eq!(
         at.fs.read_to_string(&at.sidecar().lock).unwrap(),
-        "/work/.mcp.json\n"
+        format!("{}\n", at.target().display())
     );
-    drop(locked);
 }
 
 #[test]

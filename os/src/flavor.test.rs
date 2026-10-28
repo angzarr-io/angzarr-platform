@@ -230,6 +230,53 @@ fn test_the_top_each_flavor_names_from() {
     }
 }
 
+#[test]
+fn test_a_path_from_the_top_is_spelled_as_each_flavor_spells_it() {
+    assert_eq!(Unix.from_top("/"), "/");
+    assert_eq!(Unix.from_top("/home/u/x"), "/home/u/x");
+    assert_eq!(Windows.from_top("/"), r"C:\");
+    assert_eq!(Windows.from_top("/home/u/x"), r"C:\home\u\x");
+    for flavor in [Unix, Windows] {
+        let spelled = flavor.from_top("/a/b");
+        let (top, rest) = flavor.split_top(&spelled).expect("absolute");
+        assert_eq!(top, flavor.top(), "{flavor:?}");
+        assert_eq!(flavor.to_slash(&rest), "a/b", "{flavor:?}");
+    }
+}
+
+#[test]
+#[should_panic(expected = "not a path from the top")]
+fn test_a_relative_path_has_no_spelling_from_the_top() {
+    Windows.from_top("a/b");
+}
+
+#[test]
+fn test_a_program_is_installed_under_a_name_the_search_finds() {
+    assert_eq!(Unix.program_file("taskloom"), "taskloom");
+    assert_eq!(Windows.program_file("taskloom"), "taskloom.exe");
+    for flavor in [Unix, Windows] {
+        // Compared as each looks a name up: Windows' without case.
+        let file = flavor.program_file("taskloom");
+        let found = flavor
+            .candidates("taskloom", None)
+            .iter()
+            .any(|c| match flavor {
+                Unix => *c == file,
+                Windows => c.eq_ignore_ascii_case(&file),
+            });
+        assert!(found, "{flavor:?}");
+    }
+}
+
+#[test]
+fn test_a_process_starts_on_no_variable_on_unix_and_the_systems_on_windows() {
+    assert!(Unix.startup_vars().is_empty());
+    assert_eq!(
+        Windows.startup_vars(),
+        ["SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "TEMP", "TMP"]
+    );
+}
+
 // ------------------------------------------------------------ lock records
 
 #[test]

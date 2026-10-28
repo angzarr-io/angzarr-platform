@@ -62,7 +62,8 @@ impl Rooted {
     /// The filesystem re-rooted under `root`, an absolute path, working in
     /// `cwd`.
     fn over(root: &Path, cwd: Result<PathBuf, CwdError>) -> io::Result<Rooted> {
-        let root = std::fs::canonicalize(root)?;
+        let os = ::os::host();
+        let root = real::canonicalize(&*os, root)?;
         if !root.is_dir() {
             return Err(io::Error::new(
                 io::ErrorKind::NotADirectory,
@@ -70,7 +71,7 @@ impl Rooted {
             ));
         }
         Ok(Rooted {
-            os: ::os::host(),
+            os,
             root,
             cwd,
             _temp: None,
@@ -89,15 +90,17 @@ impl Rooted {
     pub fn temp_with_cwd(cwd: &Path) -> io::Result<Rooted> {
         let cwd = Caller::parse(cwd)?.path();
         let temp = TempDir::new()?;
+        let os = ::os::host();
         Ok(Rooted {
-            os: ::os::host(),
-            root: std::fs::canonicalize(temp.path())?,
+            root: real::canonicalize(&*os, temp.path())?,
+            os,
             cwd: Ok(cwd),
             _temp: Some(temp),
         })
     }
 
-    /// The directory everything is under, its links resolved.
+    /// The directory everything is under, its links resolved (spelled as
+    /// a person writes it: no verbatim prefix on Windows).
     pub fn root(&self) -> &Path {
         &self.root
     }
@@ -112,9 +115,30 @@ impl Rooted {
         Caller::parse(&cwd.join(path))
     }
 
-    /// Where the caller's `path` is under the root.
+    /// Where the caller's `path` is under the root, the directory its top
+    /// is at there made ([`Rooted::top_made`]).
     fn reroot(&self, path: &Path) -> io::Result<PathBuf> {
-        Ok(self.caller(path)?.under(&self.root))
+        let caller = self.caller(path)?;
+        self.top_made(&caller.top)?;
+        Ok(caller.under(&self.root))
+    }
+
+    /// The directory `top` is at under the root, made when it is missing,
+    /// since a top always exists: on unix it is the root itself; on
+    /// Windows `C:\` is `<root>\C`, which nothing else makes, so a path
+    /// at the top (`C:\x`) would have no directory to be written in. Made
+    /// on first use, never before, so a root nothing re-roots into (a
+    /// directory a test hands a process) stays empty.
+    // Makes a directory only on Windows (on unix the top is the root,
+    // already there): no mutant of it can be killed on a unix host, so
+    // the Windows runner's tests of writing at the top are what hold it.
+    #[cfg_attr(test, mutants::skip)]
+    fn top_made(&self, top: &Top) -> io::Result<()> {
+        let dir = top.under(&self.root);
+        if dir.is_dir() {
+            return Ok(());
+        }
+        std::fs::create_dir_all(dir)
     }
 
     /// The caller's name for `real`, a path under the root; one outside it
@@ -126,6 +150,7 @@ impl Rooted {
                 "the path resolves outside the filesystem's root",
             )
         };
+        let real = real::plain(self.os.flavor(), real.to_path_buf());
         let rest = real.strip_prefix(&self.root).map_err(|_| outside())?;
         let mut components = rest.components();
         let top = Top::from_real(&mut components).ok_or_else(outside)?;
@@ -200,7 +225,7 @@ impl Fs for Rooted {
     }
 
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
-        self.unroot(&std::fs::canonicalize(self.reroot(path)?)?)
+        self.unroot(&real::canonicalize(&*self.os, &self.reroot(path)?)?)
     }
 
     fn symlink_dir(&self, target: &Path, link: &Path) -> io::Result<()> {

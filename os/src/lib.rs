@@ -169,6 +169,13 @@ pub fn not_unicode(prefix: &str) -> OsString {
     host::not_unicode(prefix)
 }
 
+/// A test fixture's absolute path, written the unix way (`/home/u`), as
+/// the host spells it ([`Flavor::from_top`]: `C:\home\u` on Windows): the
+/// one way a test names a path that is absolute on every host.
+pub fn fixture(path: &str) -> PathBuf {
+    PathBuf::from(host().flavor().from_top(path))
+}
+
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;

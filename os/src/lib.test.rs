@@ -218,3 +218,13 @@ fn test_text_that_is_not_unicode_is_not_unicode_and_keeps_its_prefix() {
     assert!(odd.to_str().is_none());
     assert!(odd.as_encoded_bytes().starts_with(b"x-"));
 }
+
+#[test]
+fn test_a_fixture_is_absolute_on_the_host_and_spelled_by_its_flavor() {
+    let path = super::fixture("/home/u");
+    assert!(path.is_absolute(), "{path:?}");
+    assert_eq!(
+        path.to_str(),
+        Some(super::host().flavor().from_top("/home/u").as_str())
+    );
+}

@@ -75,14 +75,14 @@ fn test_a_path_is_cleaned_as_gos_filepath_clean_cleans_it() {
 
 #[test]
 fn test_a_relative_path_is_made_absolute_against_the_working_directory() {
-    let fs = Rooted::temp_with_cwd(Path::new("/work/here")).unwrap();
+    let fs = Rooted::temp_with_cwd(&os::fixture("/work/here")).unwrap();
     assert_eq!(
         absolute(&fs, Path::new("a/./b/../.mcp.json")).unwrap(),
-        Path::new("/work/here/a/.mcp.json")
+        os::fixture("/work/here/a/.mcp.json")
     );
     assert_eq!(
-        absolute(&fs, Path::new("/x/../y")).unwrap(),
-        Path::new("/y")
+        absolute(&fs, &os::fixture("/x/../y")).unwrap(),
+        os::fixture("/y")
     );
 }
 
@@ -201,6 +201,40 @@ fn test_a_session_file_under_a_linked_sessions_root_names_the_lock_as_home_spell
     assert!(sidecar_for(&fs, home, Path::new("/x/.mcp.json"))
         .interlock
         .is_some());
+}
+
+// The same on the real filesystem, every host: the sessions root as its
+// links resolve is spelled as the target is, so a session file reached
+// through the resolved root is the session's. On Windows the resolution
+// was spelled verbatim (`\\?\C:\...`), which no target is, so it took the
+// home lock instead, where Go (whose EvalSymlinks spells it plainly) takes
+// the session's: the two never excluded each other.
+#[test]
+fn test_a_session_file_under_a_linked_sessions_root_on_the_real_filesystem_is_the_sessions() {
+    let temp = Rooted::temp().unwrap();
+    let top = temp.root().to_path_buf();
+    let fs = file_system::Os::new(host(), &top).unwrap();
+    let (home, real) = (top.join("home"), top.join("elsewhere"));
+    fs.create_dir_all(&home.join(".ctxloom"), Mode::DIR)
+        .unwrap();
+    fs.create_dir_all(&real.join("jolly-mute-magma").join("work"), Mode::DIR)
+        .unwrap();
+    fs.symlink_dir(&real, &home.join(".ctxloom").join("sessions"))
+        .unwrap();
+    let target = real.join("jolly-mute-magma").join("work").join(".mcp.json");
+    let sidecar = sidecar_for(&fs, &home, &target);
+    assert_eq!(
+        sidecar,
+        Sidecar {
+            lock: home
+                .join(".ctxloom")
+                .join("sessions")
+                .join("jolly-mute-magma")
+                .join("locks")
+                .join(format!("{}.lock", flat_name("work/.mcp.json"))),
+            interlock: None,
+        }
+    );
 }
 
 #[test]

@@ -47,8 +47,9 @@ impl Case {
 fn os_case() -> Case {
     let temp = tempfile::tempdir().unwrap();
     // The temporary directory as its links resolve (macOS's /var is
-    // /private/var), so canonicalize has nothing of its own to add.
-    let base = std::fs::canonicalize(temp.path()).unwrap();
+    // /private/var) and as a person spells it (no verbatim prefix on
+    // Windows), so canonicalize has nothing of its own to add.
+    let base = crate::real::canonicalize(&*host(), temp.path()).unwrap();
     Case {
         fs: Arc::new(Os::new(host(), &base).unwrap()),
         base,

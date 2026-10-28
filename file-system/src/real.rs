@@ -7,9 +7,29 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use ::os::{Mode, Os};
+use ::os::{Flavor, Mode, Os};
 
 use crate::{Entry, Kind, Meta, Open, Perms};
+
+/// `path` as a person writes it ([`::os::Flavor::display_path`]): on
+/// Windows without the verbatim prefix (`\\?\`) `std::fs::canonicalize`
+/// adds, which git, Go and a junction's target never spell. A path that is
+/// not UTF-8 is left as it is.
+pub(crate) fn plain(flavor: Flavor, path: PathBuf) -> PathBuf {
+    match path.to_str() {
+        Some(text) => PathBuf::from(flavor.display_path(text)),
+        None => path,
+    }
+}
+
+/// `path` with every link and `.`/`..` resolved, spelled [`plain`].
+pub(crate) fn canonicalize(os: &dyn Os, path: &Path) -> io::Result<PathBuf> {
+    Ok(plain(os.flavor(), fs::canonicalize(path)?))
+}
+
+#[cfg(test)]
+#[path = "real.test.rs"]
+mod tests;
 
 pub(crate) fn write_atomic(os: &dyn Os, path: &Path, bytes: &[u8], perms: Perms) -> io::Result<()> {
     let dir = path
