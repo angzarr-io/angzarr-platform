@@ -93,7 +93,8 @@ pub enum LockKind {
 }
 
 /// Resolves when the process is asked to stop: SIGINT or SIGTERM on
-/// unix, Ctrl-C on Windows.
+/// unix; Ctrl-C, Ctrl-Break, or the console's close, logoff or shutdown on
+/// Windows.
 pub type StopSignal = Pin<Box<dyn Future<Output = ()> + Send>>;
 
 /// The host's syscalls that differ between operating systems. Made once,
@@ -150,7 +151,10 @@ pub trait Os: Send + Sync + fmt::Debug {
     /// Windows). Held until the file is closed.
     fn try_lock(&self, file: &File, kind: LockKind) -> io::Result<bool>;
 
-    /// A future resolving when the process is asked to stop, listening
+    /// A future resolving when the process is asked to stop, as Go's
+    /// os.Interrupt and SIGTERM are: SIGINT or SIGTERM on unix; Ctrl-C,
+    /// Ctrl-Break, or the console's close, logoff or shutdown on Windows.
+    /// Listening
     /// from the moment it is made, so a signal before its first poll is
     /// not lost to the default disposition. Made on the caller's tokio
     /// runtime, whose drivers must be enabled.

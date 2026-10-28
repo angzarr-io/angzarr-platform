@@ -10,6 +10,9 @@ use std::os::windows::fs::FileTypeExt;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
+use std::task::Poll;
+
+use tokio::signal::windows as signal;
 
 use windows_sys::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_BREAK_EVENT};
 use windows_sys::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP;
@@ -77,11 +80,29 @@ impl Os for Host {
         super::try_lock(file, kind)
     }
 
+    // Go's os.Interrupt and SIGTERM on Windows: Ctrl-C and Ctrl-Break, and
+    // the console's close, the user's logoff and the system's shutdown.
     fn stop_signal(&self) -> io::Result<StopSignal> {
-        let mut ctrl_c = tokio::signal::windows::ctrl_c()?;
-        Ok(Box::pin(async move {
-            ctrl_c.recv().await;
-        }))
+        let mut c = signal::ctrl_c()?;
+        let mut brk = signal::ctrl_break()?;
+        let mut close = signal::ctrl_close()?;
+        let mut logoff = signal::ctrl_logoff()?;
+        let mut shutdown = signal::ctrl_shutdown()?;
+        Ok(Box::pin(std::future::poll_fn(move |cx| {
+            // Each is polled, so each registers its waker.
+            let stopped = [
+                c.poll_recv(cx).is_ready(),
+                brk.poll_recv(cx).is_ready(),
+                close.poll_recv(cx).is_ready(),
+                logoff.poll_recv(cx).is_ready(),
+                shutdown.poll_recv(cx).is_ready(),
+            ];
+            if stopped.contains(&true) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })))
     }
 }
 

@@ -10,8 +10,9 @@ publish.workspace = true
 [dependencies]
 # Advisory locks: flock on unix, LockFileEx on Windows.
 fs4.workspace = true
-# The stop signal: SIGINT/SIGTERM on unix, Ctrl-C on Windows, as a future
-# made on the caller's runtime.
+# The stop signal: SIGINT/SIGTERM on unix; Ctrl-C, Ctrl-Break and the
+# console's close, logoff and shutdown on Windows; as a future made on the
+# caller's runtime.
 tokio = { workspace = true, features = ["signal"] }
 typed-path.workspace = true
 
