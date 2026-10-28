@@ -132,7 +132,7 @@ impl Fs for Os {
     }
 
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
-        std::fs::canonicalize(self.at(path)?)
+        real::canonicalize(&*self.os, &self.at(path)?)
     }
 
     fn symlink_dir(&self, target: &Path, link: &Path) -> io::Result<()> {

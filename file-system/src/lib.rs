@@ -170,7 +170,8 @@ pub trait Fs: Send + Sync + std::fmt::Debug {
     fn absolute(&self, path: &Path) -> io::Result<PathBuf>;
 
     /// `path` with every link and `.`/`..` resolved, as the caller names
-    /// it.
+    /// it, and as a person (and Go's `EvalSymlinks`) spells it: on Windows
+    /// without the verbatim prefix (`\\?\`) the OS's resolution carries.
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf>;
 
     /// Make `link` a link to the directory `target`, written as given
