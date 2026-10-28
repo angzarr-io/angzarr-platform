@@ -201,6 +201,26 @@ fn test_a_stop_signal_waits_for_a_signal_and_resolves_at_one() {
     }
 }
 
+/// Unix has no console events: a Ctrl-Break is refused as unsupported,
+/// and starting a child in its own group changes nothing of it. (On
+/// Windows, the watch's clean stop at a Ctrl-Break is the binary's
+/// acceptance test.)
+#[test]
+fn test_a_ctrl_break_is_unsupported_on_unix() {
+    if host().flavor() != Flavor::Unix {
+        return;
+    }
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    let mut child = super::own_group(&mut command)
+        .args(["--list", "--format", "terse"])
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let sent = super::ctrl_break(&child);
+    assert_eq!(sent.unwrap_err().kind(), io::ErrorKind::Unsupported);
+    assert!(child.wait().unwrap().success());
+}
+
 /// Send `signal` to this process, as `kill` does.
 fn send(signal: &str) {
     let status = std::process::Command::new("kill")

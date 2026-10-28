@@ -49,6 +49,7 @@ use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::process::{Child, Command};
 use std::sync::Arc;
 
 pub use flavor::{Flavor, NotUtf8, DEFAULT_PATHEXT};
@@ -167,6 +168,22 @@ pub fn host() -> Arc<dyn Os> {
 /// surrogate on Windows). For tests of what refuses or skips such text.
 pub fn not_unicode(prefix: &str) -> OsString {
     host::not_unicode(prefix)
+}
+
+/// Start `command` in a process group of its own, so a console event sent
+/// to that group ([`ctrl_break`]) reaches the child alone, never the
+/// process starting it: CREATE_NEW_PROCESS_GROUP on Windows. Nothing on
+/// unix, whose stop signals are sent to one process by pid. For tests
+/// that stop a child as a console would.
+pub fn own_group(command: &mut Command) -> &mut Command {
+    host::own_group(command)
+}
+
+/// Send a Ctrl-Break to `child`'s process group, which [`own_group`]
+/// started it in: GenerateConsoleCtrlEvent on Windows. Unix has no console
+/// events: `Unsupported`.
+pub fn ctrl_break(child: &Child) -> io::Result<()> {
+    host::ctrl_break(child)
 }
 
 /// A test fixture's absolute path, written the unix way (`/home/u`), as

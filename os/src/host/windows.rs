@@ -7,7 +7,12 @@ use std::fs::{self, DirBuilder, File, Metadata, OpenOptions};
 use std::io;
 use std::os::windows::ffi::OsStringExt;
 use std::os::windows::fs::FileTypeExt;
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
+use std::process::{Child, Command};
+
+use windows_sys::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_BREAK_EVENT};
+use windows_sys::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP;
 
 use crate::{Flavor, LockKind, Mode, Os, StopSignal};
 
@@ -78,6 +83,21 @@ impl Os for Host {
             ctrl_c.recv().await;
         }))
     }
+}
+
+#[cfg_attr(test, mutants::skip)]
+pub(crate) fn own_group(command: &mut Command) -> &mut Command {
+    command.creation_flags(CREATE_NEW_PROCESS_GROUP)
+}
+
+#[cfg_attr(test, mutants::skip)]
+pub(crate) fn ctrl_break(child: &Child) -> io::Result<()> {
+    // SAFETY: a plain call taking two integers; a group that is not there
+    // is an error it returns.
+    if unsafe { GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, child.id()) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 pub(crate) fn not_unicode(prefix: &str) -> OsString {

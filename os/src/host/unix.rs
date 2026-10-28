@@ -6,6 +6,7 @@ use std::io;
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::process::{Child, Command};
 use std::task::Poll;
 
 use tokio::signal::unix::{signal, SignalKind};
@@ -80,6 +81,17 @@ impl Os for Host {
             }
         })))
     }
+}
+
+pub(crate) fn own_group(command: &mut Command) -> &mut Command {
+    command
+}
+
+pub(crate) fn ctrl_break(_child: &Child) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "unix has no console events",
+    ))
 }
 
 pub(crate) fn not_unicode(prefix: &str) -> OsString {

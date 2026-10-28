@@ -4,6 +4,7 @@
 use std::ffi::OsString;
 use std::fs::File;
 use std::io;
+use std::process::{Child, Command};
 use std::sync::Arc;
 
 use crate::{LockKind, Os};
@@ -24,6 +25,14 @@ pub(crate) fn make() -> Arc<dyn Os> {
 
 pub(crate) fn not_unicode(prefix: &str) -> OsString {
     imp::not_unicode(prefix)
+}
+
+pub(crate) fn own_group(command: &mut Command) -> &mut Command {
+    imp::own_group(command)
+}
+
+pub(crate) fn ctrl_break(child: &Child) -> io::Result<()> {
+    imp::ctrl_break(child)
 }
 
 /// Take `kind` of lock on `file` without waiting: fs4's flock on unix,
