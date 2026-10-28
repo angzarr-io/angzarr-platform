@@ -47,8 +47,8 @@ pub enum Top {
     Unc(OsString, OsString),
 }
 
-// Compiled only on Windows, where no runner tests it yet: its mutants
-// cannot be killed here.
+// Compiled only on Windows, where CI's Windows runner tests it. Mutation
+// testing runs on unix, where its mutants cannot be killed.
 #[cfg(windows)]
 #[cfg_attr(test, mutants::skip)]
 impl Top {

@@ -1,6 +1,5 @@
 //! The host's syscalls, each held to what it promises, on whatever host
-//! runs the tests: unix here; Windows on decision 5's CI runner, when there
-//! is one.
+//! runs the tests: unix here; Windows on CI's Windows runner (decision 5).
 
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, Write};

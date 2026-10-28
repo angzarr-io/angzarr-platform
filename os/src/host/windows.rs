@@ -1,6 +1,6 @@
-//! The Windows syscalls. Compiled only on Windows, where no runner tests
-//! them yet (decision 5's Windows CI runner is what settles them): their
-//! mutants cannot be killed here, hence each `mutants::skip`.
+//! The Windows syscalls. Compiled only on Windows, where CI's Windows
+//! runner tests them (decision 5). Mutation testing runs on unix, where
+//! their mutants cannot be killed, hence each `mutants::skip`.
 
 use std::ffi::OsString;
 use std::fs::{self, DirBuilder, File, Metadata, OpenOptions};

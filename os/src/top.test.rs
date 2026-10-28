@@ -1,5 +1,5 @@
-//! The host's tops: unix here; Windows on decision 5's CI runner, when
-//! there is one (the file-system seam's re-rooting tests cover both).
+//! The host's tops: unix here; Windows on CI's Windows runner (decision
+//! 5); the file-system seam's re-rooting tests cover both.
 
 use std::path::Path;
 
