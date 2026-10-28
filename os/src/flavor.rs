@@ -66,6 +66,15 @@ impl Flavor {
         }
     }
 
+    /// How a message refers to the variable `name`, as the flavor's shell
+    /// does: `$PATH` on unix, `%PATH%` on Windows (cmd's).
+    pub fn var_ref(self, name: &str) -> String {
+        match self {
+            Flavor::Unix => format!("${name}"),
+            Flavor::Windows => format!("%{name}%"),
+        }
+    }
+
     /// The key an environment variable's name is compared by: itself on
     /// unix; ASCII-uppercased on Windows, whose names are case-insensitive.
     pub fn env_key(self, name: &str) -> String {

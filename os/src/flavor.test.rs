@@ -20,6 +20,12 @@ fn strings(values: &[&str]) -> Vec<String> {
 // ------------------------------------------------------------ home
 
 #[test]
+fn test_a_variable_is_named_as_each_flavors_shell_refers_to_it() {
+    assert_eq!(Unix.var_ref("PATH"), "$PATH");
+    assert_eq!(Windows.var_ref("PATH"), "%PATH%");
+}
+
+#[test]
 fn test_the_home_is_home_on_unix_and_userprofile_on_windows() {
     let env = [("HOME", "/home/u"), ("USERPROFILE", r"C:\Users\u")];
     assert_eq!(Unix.home_dir(&vars(&env)), Some("/home/u".to_string()));
