@@ -3,7 +3,7 @@
 use std::fmt;
 use std::path::Path;
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum LockError {
@@ -39,33 +39,7 @@ impl LockError {
 
 impl fmt::Display for LockError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            LockError::Io { path, detail } => write!(f, "{path}: {detail}"),
-            LockError::RelativePath { path } => write!(
-                f,
-                "{path} is a relative path; a lock is only ever taken at an absolute one"
-            ),
-            LockError::NotRegular { path } => write!(
-                f,
-                "the lock {path} is not a regular file, so it cannot be locked"
-            ),
-            LockError::Timeout { path, waited_ms } => write!(
-                f,
-                "the lock {path} is still held after {waited_ms}ms: another ctxloom, taskloom or ltk process holds it; try again once it exits"
-            ),
-            LockError::Replaced { path, attempts } => write!(
-                f,
-                "the lock {path} was replaced {attempts} times while being taken: try again"
-            ),
-            LockError::ReapInProgress { path, waited_ms } => write!(
-                f,
-                "a reap of the home lock directory (`ctxloom clean --yes`) is in progress: it still held {path} after {waited_ms}ms; let it finish, then retry"
-            ),
-            LockError::NotUtf8 { path } => write!(
-                f,
-                "{path} cannot be locked: its name is not valid Unicode, so a lock file cannot record it; rename it"
-            ),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
@@ -87,7 +61,7 @@ impl Diagnostic for LockError {
     fn args(&self) -> Vec<(&'static str, Arg)> {
         let s = |v: &String| Arg::from(v.as_str());
         match self {
-            LockError::Io { path, detail } => vec![("path", s(path)), ("detail", s(detail))],
+            LockError::Io { path, detail } => vec![("path", s(path)), ("ext_err_txt", s(detail))],
             LockError::RelativePath { path }
             | LockError::NotRegular { path }
             | LockError::NotUtf8 { path } => {

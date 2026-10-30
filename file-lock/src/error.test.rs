@@ -1,6 +1,8 @@
 //! The errors' English and the catalog.
 
-use annals_diagnostic::Diagnostic;
+use angzarr_embedded_diagnostic::Diagnostic;
+
+crate::english_for!(&[crate::EN_US.1]);
 
 use super::{diagnostic_samples, LockError};
 
@@ -15,7 +17,7 @@ fn test_a_timeout_names_the_lock_and_how_long_it_waited() {
         waited_ms: 30,
     };
     assert_eq!(
-        timeout.to_string(),
+        timeout.english(),
         "the lock /h/.ctxloom/locks/x.lock is still held after 30ms: another ctxloom, taskloom or ltk process holds it; try again once it exits"
     );
     assert_eq!(timeout.code(), "file-lock-timeout");

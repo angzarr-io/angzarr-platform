@@ -1,6 +1,8 @@
 //! The error's English and the catalog.
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
+
+crate::english_for!(&[crate::EN_US.1]);
 
 use super::{diagnostic_samples, CwdError};
 
@@ -14,7 +16,7 @@ fn test_a_cwd_error_says_why_the_working_directory_cannot_be_read() {
         reason: "gone".to_string(),
     };
     assert_eq!(
-        error.to_string(),
+        error.english(),
         "the working directory cannot be read: gone"
     );
     assert_eq!(error.code(), "file-system-no-cwd");

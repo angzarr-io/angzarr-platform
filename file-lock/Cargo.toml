@@ -8,13 +8,15 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-annals-diagnostic.workspace = true
+angzarr-embedded-diagnostic.workspace = true
 file-system.workspace = true
 # The advisory lock itself, and how a lock file records a path, per OS.
 os.workspace = true
 sha2.workspace = true
 
 [dev-dependencies]
+# Rendering catalogs' English, for the tests that hold it to Go's.
+fluent-bundle.workspace = true
 fluent-syntax.workspace = true
 mutants.workspace = true
 

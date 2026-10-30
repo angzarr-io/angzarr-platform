@@ -201,3 +201,7 @@ pub trait Fs: Send + Sync + std::fmt::Debug {
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../../adapters/driving/presentation/src/english.test.rs"]
+mod english;
