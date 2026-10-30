@@ -6,6 +6,7 @@ use std::io;
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+#[cfg(any(test, feature = "test-support"))]
 use std::process::{Child, Command};
 use std::task::Poll;
 
@@ -83,10 +84,12 @@ impl Os for Host {
     }
 }
 
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn own_group(command: &mut Command) -> &mut Command {
     command
 }
 
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn ctrl_break(_child: &Child) -> io::Result<()> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,

@@ -4,6 +4,7 @@
 use std::ffi::OsString;
 use std::fs::File;
 use std::io;
+#[cfg(any(test, feature = "test-support"))]
 use std::process::{Child, Command};
 use std::sync::Arc;
 
@@ -27,10 +28,12 @@ pub(crate) fn not_unicode(prefix: &str) -> OsString {
     imp::not_unicode(prefix)
 }
 
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn own_group(command: &mut Command) -> &mut Command {
     imp::own_group(command)
 }
 
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn ctrl_break(child: &Child) -> io::Result<()> {
     imp::ctrl_break(child)
 }

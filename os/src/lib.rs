@@ -49,6 +49,7 @@ use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+#[cfg(any(test, feature = "test-support"))]
 use std::process::{Child, Command};
 use std::sync::Arc;
 
@@ -179,14 +180,16 @@ pub fn not_unicode(prefix: &str) -> OsString {
 /// to that group ([`ctrl_break`]) reaches the child alone, never the
 /// process starting it: CREATE_NEW_PROCESS_GROUP on Windows. Nothing on
 /// unix, whose stop signals are sent to one process by pid. For tests
-/// that stop a child as a console would.
+/// that stop a child as a console would. Test support.
+#[cfg(any(test, feature = "test-support"))]
 pub fn own_group(command: &mut Command) -> &mut Command {
     host::own_group(command)
 }
 
 /// Send a Ctrl-Break to `child`'s process group, which [`own_group`]
 /// started it in: GenerateConsoleCtrlEvent on Windows. Unix has no console
-/// events: `Unsupported`.
+/// events: `Unsupported`. Test support.
+#[cfg(any(test, feature = "test-support"))]
 pub fn ctrl_break(child: &Child) -> io::Result<()> {
     host::ctrl_break(child)
 }

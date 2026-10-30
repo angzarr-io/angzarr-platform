@@ -7,14 +7,18 @@ use std::fs::{self, DirBuilder, File, Metadata, OpenOptions};
 use std::io;
 use std::os::windows::ffi::OsStringExt;
 use std::os::windows::fs::FileTypeExt;
+#[cfg(any(test, feature = "test-support"))]
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
+#[cfg(any(test, feature = "test-support"))]
 use std::process::{Child, Command};
 use std::task::Poll;
 
 use tokio::signal::windows as signal;
 
+#[cfg(any(test, feature = "test-support"))]
 use windows_sys::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_BREAK_EVENT};
+#[cfg(any(test, feature = "test-support"))]
 use windows_sys::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP;
 
 use crate::{Flavor, LockKind, Mode, Os, StopSignal};
@@ -107,11 +111,13 @@ impl Os for Host {
 }
 
 #[cfg_attr(test, mutants::skip)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn own_group(command: &mut Command) -> &mut Command {
     command.creation_flags(CREATE_NEW_PROCESS_GROUP)
 }
 
 #[cfg_attr(test, mutants::skip)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn ctrl_break(child: &Child) -> io::Result<()> {
     // SAFETY: a plain call taking two integers; a group that is not there
     // is an error it returns.
