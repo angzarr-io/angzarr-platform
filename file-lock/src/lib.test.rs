@@ -1,6 +1,5 @@
-//! Taking a lock: the re-check, the bounded wait, shared and exclusive
-//! holders, the guard record, and a foreign file's sidecar under the reap
-//! interlock. Each contention is forced: the holder is this test's own
+//! Taking a lock: the re-check, the bounded wait, and the exclusive
+//! holder. Each contention is forced: the holder is this test's own
 //! handle, and a wait is released from inside the waiter's own pause.
 //! Every test's files are on a filesystem of its own (`Rooted::temp`).
 
@@ -11,10 +10,7 @@ use std::time::Duration;
 use file_system::{Fs, Open, Perms, Rooted};
 use os::{host, Flavor, LockKind, Mode};
 
-use super::{
-    lock, lock_file, lock_within, path, record_line, take_current, take_once, until, Kind,
-    LockError, Waits, LOCK_ATTEMPTS, LOCK_WAIT,
-};
+use super::{lock_within, take_current, take_once, until, LockError, LOCK_ATTEMPTS, LOCK_WAIT};
 
 /// Open and lock the lock file at `path` exclusively, as another process
 /// holding it would.
@@ -64,10 +60,6 @@ fn released(fs: &dyn Fs, path: &Path) -> bool {
     lock_within(fs, path, LOCK_WAIT).is_ok()
 }
 
-fn never() -> impl FnMut() -> Result<(), LockError> {
-    || panic!("paused, with nobody holding the lock")
-}
-
 #[test]
 fn test_an_exclusive_lock_excludes_every_other_holder_until_dropped() {
     let (fs, dir) = rooted();
@@ -77,24 +69,6 @@ fn test_an_exclusive_lock_excludes_every_other_holder_until_dropped() {
     assert!(held_exclusively(&fs, &lock_path));
     drop(locked);
     assert!(released(&fs, &lock_path), "released on drop");
-}
-
-#[test]
-fn test_shared_locks_stand_together_and_keep_an_exclusive_one_out() {
-    let (fs, dir) = rooted();
-    let lock_path = dir.join("x.lock");
-    let one = lock(&fs, &lock_path, Kind::Shared, None, &mut never()).unwrap();
-    let two = lock(&fs, &lock_path, Kind::Shared, None, &mut never()).unwrap();
-    assert!(
-        held(&fs, &lock_path),
-        "shared holders keep an exclusive taker out"
-    );
-    assert!(
-        !held_exclusively(&fs, &lock_path),
-        "and let a shared one in"
-    );
-    drop((one, two));
-    assert!(released(&fs, &lock_path));
 }
 
 #[test]
@@ -168,7 +142,7 @@ fn test_a_lock_file_that_cannot_be_made_is_an_io_error_naming_it() {
 
 #[test]
 fn test_a_lock_taken_on_a_file_since_unlinked_is_taken_again() {
-    // `ctxloom clean` reaps lock sidecars: a lock granted on a file that
+    // `ctxloom clean` reaps lock files: a lock granted on a file that
     // was unlinked meanwhile excludes nobody, since the next taker creates
     // and locks a new file at the path.
     let (fs, dir) = rooted();
@@ -263,24 +237,22 @@ fn test_a_lock_is_held_while_any_descriptor_sharing_it_lives() {
 
 #[test]
 fn test_a_held_lock_is_waited_for_until_it_is_released() {
-    for kind in [Kind::Exclusive, Kind::Shared] {
-        let (fs, dir) = rooted();
-        let lock_path = dir.join("x.lock");
-        let mut holder = Some(hold(&fs, &lock_path));
-        let mut pauses_while_held = 0;
-        // Pauses once the holder let go are a child another thread forked
-        // (`mkfifo`) still sharing its descriptor, until that child execs.
-        let file = take_once(&fs, &lock_path, kind, None, &mut || {
-            match holder.take() {
-                Some(_released) => pauses_while_held += 1,
-                None => std::thread::yield_now(),
-            }
-            Ok(())
-        })
-        .expect("taken once the holder let go");
-        assert_eq!(pauses_while_held, 1, "{kind:?} paused while held");
-        drop(file);
-    }
+    let (fs, dir) = rooted();
+    let lock_path = dir.join("x.lock");
+    let mut holder = Some(hold(&fs, &lock_path));
+    let mut pauses_while_held = 0;
+    // Pauses once the holder let go are a child another thread forked
+    // (`mkfifo`) still sharing its descriptor, until that child execs.
+    let file = take_once(&fs, &lock_path, &mut || {
+        match holder.take() {
+            Some(_released) => pauses_while_held += 1,
+            None => std::thread::yield_now(),
+        }
+        Ok(())
+    })
+    .expect("taken once the holder let go");
+    assert_eq!(pauses_while_held, 1, "paused while held");
+    drop(file);
 }
 
 #[test]
@@ -291,9 +263,7 @@ fn test_a_pause_that_gives_up_fails_the_take() {
     let gave_up = LockError::RelativePath {
         path: "x".to_string(),
     };
-    let refused = take_once(&fs, &lock_path, Kind::Exclusive, None, &mut || {
-        Err(gave_up.clone())
-    });
+    let refused = take_once(&fs, &lock_path, &mut || Err(gave_up.clone()));
     assert_eq!(refused.unwrap_err(), gave_up);
 }
 
@@ -307,202 +277,4 @@ fn test_a_pause_waits_while_the_wait_lasts_and_gives_up_after() {
         none(),
         Err(LockError::Timeout { waited_ms: 0, .. })
     ));
-}
-
-#[test]
-fn test_a_lock_file_it_creates_records_what_it_guards_and_one_there_is_kept() {
-    let (fs, dir) = rooted();
-    let lock_path = dir.join("x.lock");
-    let guarded = Path::new("/home/u/.claude.json");
-    let locked = lock(
-        &fs,
-        &lock_path,
-        Kind::Exclusive,
-        Some(guarded),
-        &mut never(),
-    )
-    .unwrap();
-    drop(locked);
-    // Read once let go: Windows' locks are mandatory, so a held lock
-    // file cannot be read, by this process or another.
-    assert_eq!(fs.read(&lock_path).unwrap(), b"/home/u/.claude.json\n");
-    // Another taker's file is left exactly as it is.
-    write(&fs, &lock_path, b"/elsewhere\n");
-    let mut wait = until(&lock_path, LOCK_WAIT);
-    drop(lock(&fs, &lock_path, Kind::Exclusive, Some(guarded), &mut wait).unwrap());
-    assert_eq!(fs.read(&lock_path).unwrap(), b"/elsewhere\n");
-    // A taker guarding nothing records nothing.
-    let bare = dir.join("bare.lock");
-    drop(lock_within(&fs, &bare, Duration::ZERO).unwrap());
-    assert_eq!(fs.read(&bare).unwrap(), b"");
-}
-
-#[test]
-fn test_a_record_is_the_paths_utf8_and_one_with_none_is_refused_on_windows() {
-    let path = PathBuf::from(os::not_unicode("/home/u/"));
-    // Unix records a path's bytes as they are, UTF-8 or not, as Go does.
-    let mut bytes = path.as_os_str().as_encoded_bytes().to_vec();
-    bytes.push(b'\n');
-    assert_eq!(record_line(Flavor::Unix, &path), Ok(bytes));
-    assert_eq!(
-        record_line(Flavor::Windows, Path::new(r"C:\Users\u\.claude.json")),
-        Ok(b"C:\\Users\\u\\.claude.json\n".to_vec())
-    );
-    // Windows records UTF-8: text with none is refused, naming the path.
-    assert_eq!(
-        record_line(Flavor::Windows, &path),
-        Err(LockError::NotUtf8 {
-            path: path.display().to_string()
-        })
-    );
-}
-
-#[test]
-fn test_a_path_the_host_cannot_record_is_refused_before_any_lock_file_is_made() {
-    if host().flavor() != Flavor::Windows {
-        return;
-    }
-    let (fs, dir) = rooted();
-    let lock_path = dir.join("x.lock");
-    let guarded = PathBuf::from(os::not_unicode(r"C:\"));
-    let refused = lock(
-        &fs,
-        &lock_path,
-        Kind::Exclusive,
-        Some(&guarded),
-        &mut never(),
-    );
-    assert!(matches!(refused, Err(LockError::NotUtf8 { .. })));
-    assert!(!fs.exists(&lock_path).unwrap());
-}
-
-// --------------------------------------------- a foreign file's sidecar
-
-/// A home and a file outside it to guard, and where their locks go.
-struct Home {
-    fs: Rooted,
-}
-
-impl Home {
-    /// Working in `/work`, where the file to guard is.
-    fn new() -> Home {
-        Home {
-            fs: Rooted::temp_with_cwd(&os::fixture("/work")).unwrap(),
-        }
-    }
-    fn home(&self) -> PathBuf {
-        os::fixture("/home/u")
-    }
-    fn target(&self) -> PathBuf {
-        os::fixture("/work/.mcp.json")
-    }
-    fn sidecar(&self) -> path::Sidecar {
-        path::sidecar_for(&self.fs, &self.home(), &self.target())
-    }
-}
-
-fn short(lock: u64, reap: u64) -> Waits {
-    Waits {
-        lock: Duration::from_millis(lock),
-        reap_interlock: Duration::from_millis(reap),
-    }
-}
-
-#[test]
-fn test_a_file_lock_holds_its_sidecar_and_the_reap_interlock_shared_until_dropped() {
-    let at = Home::new();
-    let sidecar = at.sidecar();
-    let interlock = sidecar.interlock.clone().unwrap();
-    let locked = lock_file(&at.fs, &at.home(), &at.target(), Waits::DEFAULT).unwrap();
-    assert!(held(&at.fs, &sidecar.lock), "the sidecar, exclusively");
-    assert!(held(&at.fs, &interlock), "a reap is kept out");
-    assert!(
-        !held_exclusively(&at.fs, &interlock),
-        "the interlock is only shared"
-    );
-    drop(locked);
-    // Read once let go: Windows' locks are mandatory, so a held lock
-    // file cannot be read, by this process or another.
-    assert_eq!(
-        at.fs.read_to_string(&sidecar.lock).unwrap(),
-        format!("{}\n", at.target().display()),
-        "the sidecar records the file it guards"
-    );
-    assert!(released(&at.fs, &sidecar.lock));
-    assert!(released(&at.fs, &interlock));
-}
-
-#[test]
-fn test_a_relative_target_names_the_lock_its_absolute_path_does() {
-    let at = Home::new();
-    let locked = lock_file(
-        &at.fs,
-        &at.home(),
-        Path::new("x/../.mcp.json"),
-        Waits::DEFAULT,
-    )
-    .unwrap();
-    assert!(held(&at.fs, &at.sidecar().lock));
-    drop(locked);
-    // Read once let go: Windows' locks are mandatory, so a held lock
-    // file cannot be read, by this process or another.
-    assert_eq!(
-        at.fs.read_to_string(&at.sidecar().lock).unwrap(),
-        format!("{}\n", at.target().display())
-    );
-}
-
-#[test]
-fn test_a_file_lock_whose_sidecar_is_held_waits_out_the_wait_then_refuses() {
-    let at = Home::new();
-    let sidecar = at.sidecar();
-    let holder = hold(&at.fs, &sidecar.lock);
-    let refused = lock_file(&at.fs, &at.home(), &at.target(), short(30, 1000));
-    assert!(matches!(
-        refused,
-        Err(LockError::Timeout { ref path, waited_ms: 30 })
-            if *path == sidecar.lock.display().to_string()
-    ));
-    assert!(
-        released(&at.fs, &sidecar.interlock.unwrap()),
-        "the interlock is let go with the refusal"
-    );
-    drop(holder);
-    lock_file(&at.fs, &at.home(), &at.target(), Waits::DEFAULT).expect("free once released");
-}
-
-#[test]
-fn test_a_reap_in_progress_refuses_the_lock_before_its_sidecar_is_touched() {
-    let at = Home::new();
-    let sidecar = at.sidecar();
-    let reaping = hold(&at.fs, &sidecar.interlock.clone().unwrap());
-    let refused = lock_file(&at.fs, &at.home(), &at.target(), short(1000, 30));
-    assert!(matches!(
-        refused,
-        Err(LockError::ReapInProgress { ref path, waited_ms: 30 })
-            if *path == sidecar.interlock.as_ref().unwrap().display().to_string()
-    ));
-    assert!(
-        !at.fs.exists(&sidecar.lock).unwrap(),
-        "no sidecar is made during a reap"
-    );
-    drop(reaping);
-    lock_file(&at.fs, &at.home(), &at.target(), Waits::DEFAULT).expect("taken once the reap ends");
-}
-
-#[test]
-fn test_a_session_files_lock_is_the_sessions_own_with_no_interlock() {
-    let at = Home::new();
-    let target = at
-        .home()
-        .join(".ctxloom/sessions/jolly-mute-magma/work/.mcp.json");
-    let locked = lock_file(&at.fs, &at.home(), &target, Waits::DEFAULT).unwrap();
-    let sidecar = path::sidecar_for(&at.fs, &at.home(), &target);
-    assert!(sidecar.interlock.is_none());
-    assert!(held(&at.fs, &sidecar.lock));
-    assert!(
-        !at.fs.exists(&at.home().join(".ctxloom/locks")).unwrap(),
-        "nothing in the home lock directory"
-    );
-    drop(locked);
 }

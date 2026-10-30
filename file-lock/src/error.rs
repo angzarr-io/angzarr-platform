@@ -19,13 +19,6 @@ pub enum LockError {
     Timeout { path: String, waited_ms: u64 },
     /// Each lock taken was on a lock file unlinked meanwhile.
     Replaced { path: String, attempts: u32 },
-    /// A reap of the home lock directory held the reap interlock for longer
-    /// than the wait.
-    ReapInProgress { path: String, waited_ms: u64 },
-    /// The path a lock guards has no UTF-8 spelling (on Windows, an
-    /// unpaired surrogate), so its lock file cannot record it as Go reads
-    /// it.
-    NotUtf8 { path: String },
 }
 
 impl LockError {
@@ -53,8 +46,6 @@ impl Diagnostic for LockError {
             LockError::NotRegular { .. } => "file-lock-not-regular",
             LockError::Timeout { .. } => "file-lock-timeout",
             LockError::Replaced { .. } => "file-lock-replaced",
-            LockError::ReapInProgress { .. } => "file-lock-reap-in-progress",
-            LockError::NotUtf8 { .. } => "file-lock-not-utf8",
         }
     }
 
@@ -62,13 +53,10 @@ impl Diagnostic for LockError {
         let s = |v: &String| Arg::from(v.as_str());
         match self {
             LockError::Io { path, detail } => vec![("path", s(path)), ("ext_err_txt", s(detail))],
-            LockError::RelativePath { path }
-            | LockError::NotRegular { path }
-            | LockError::NotUtf8 { path } => {
+            LockError::RelativePath { path } | LockError::NotRegular { path } => {
                 vec![("path", s(path))]
             }
-            LockError::Timeout { path, waited_ms }
-            | LockError::ReapInProgress { path, waited_ms } => {
+            LockError::Timeout { path, waited_ms } => {
                 vec![("path", s(path)), ("waited_ms", Arg::from(*waited_ms))]
             }
             LockError::Replaced { path, attempts } => {
@@ -102,13 +90,6 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(LockError::Replaced {
             path: path(),
             attempts: 16,
-        }),
-        Box::new(LockError::ReapInProgress {
-            path: "/home/u/.ctxloom/locks/reap.interlock".to_string(),
-            waited_ms: 30_000,
-        }),
-        Box::new(LockError::NotUtf8 {
-            path: "C:\\Users\\u\\\u{fffd}.claude.json".to_string(),
         }),
     ]
 }

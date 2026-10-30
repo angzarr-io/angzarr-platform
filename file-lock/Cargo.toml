@@ -1,7 +1,7 @@
 [package]
 name = "file-lock"
 version = "0.1.0"
-description = "ctxloom's advisory file locks, as Go ctxloom takes them: flock on a lock file, re-checked against the file at its path, waited for a bounded time; and the home sidecar (with its reap interlock) that guards a file ctxloom does not own"
+description = "ctxloom's advisory file locks, as Go ctxloom takes them: flock on a lock file, re-checked against the file at its path, waited for a bounded time"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -12,7 +12,6 @@ angzarr-embedded-diagnostic.workspace = true
 file-system.workspace = true
 # The advisory lock itself, and how a lock file records a path, per OS.
 os.workspace = true
-sha2.workspace = true
 
 [dev-dependencies]
 # Rendering catalogs' English, for the tests that hold it to Go's.

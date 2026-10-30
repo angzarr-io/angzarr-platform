@@ -5,7 +5,7 @@
 //! on unix) on the handle the seam opens.
 //!
 //!
-//! - a lock is `flock(2)` on a lock file (shared or exclusive), created
+//! - a lock is an exclusive `flock(2)` on a lock file, created
 //!   with its directory if missing, refused when it is not a regular file;
 //! - once granted it is re-checked against the file now at its path, and
 //!   taken again while it is not ([`LOCK_ATTEMPTS`] tries): `ctxloom
@@ -13,18 +13,11 @@
 //!   nobody. That re-check is [`LOCK_PROTOCOL`] 2;
 //! - it is waited for at most a bounded time, then refused naming the
 //!   lock.
-//!
-//! [`lock_file`] is the lock serializing a read-modify-write of a file
-//! ctxloom does not own (an agent's configuration), a sidecar under the
-//! home ([`path::sidecar_for`]) that records the path it guards, taken
-//! under the reap interlock held shared when it is one `ctxloom clean` may
-//! reap.
 
 mod error;
-pub mod path;
 
 use std::fs::File;
-use std::io::{ErrorKind, Write};
+use std::io::ErrorKind;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -50,9 +43,6 @@ pub const LOCK_ATTEMPTS: u32 = 16;
 /// process that hangs holding it does not stall every other.
 pub const LOCK_WAIT: Duration = Duration::from_secs(10);
 
-/// How long a taker waits for a reap of the home lock directory to finish.
-pub const REAP_INTERLOCK_WAIT: Duration = Duration::from_secs(30);
-
 /// How often a wait for a lock tries again.
 const LOCK_POLL: Duration = Duration::from_millis(20);
 
@@ -63,15 +53,6 @@ const LOCK_FILE_MODE: Mode = Mode::FILE;
 /// A lock directory's mode, before umask.
 const LOCK_DIR_MODE: Mode = Mode::DIR;
 
-/// How a lock is held.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Kind {
-    /// One holder, beside nobody.
-    Exclusive,
-    /// Any number of holders, beside no exclusive one.
-    Shared,
-}
-
 /// A held lock, released when dropped.
 #[derive(Debug)]
 pub struct Locked {
@@ -81,23 +62,14 @@ pub struct Locked {
 /// Take the exclusive lock at `lock_path`, an absolute path, waiting up to
 /// `wait` for whoever holds it.
 pub fn lock_within(fs: &dyn Fs, lock_path: &Path, wait: Duration) -> Result<Locked, LockError> {
-    lock(
-        fs,
-        lock_path,
-        Kind::Exclusive,
-        None,
-        &mut until(lock_path, wait),
-    )
+    lock(fs, lock_path, &mut until(lock_path, wait))
 }
 
-/// Take the lock at `lock_path`, an absolute path, as `kind`, calling
-/// `pause` each time another holds it, until `pause` gives up. A lock file
-/// it creates records `guarded`, when given.
+/// Take the exclusive lock at `lock_path`, an absolute path, calling
+/// `pause` each time another holds it, until `pause` gives up.
 pub fn lock(
     fs: &dyn Fs,
     lock_path: &Path,
-    kind: Kind,
-    guarded: Option<&Path>,
     pause: &mut impl FnMut() -> Result<(), LockError>,
 ) -> Result<Locked, LockError> {
     if !lock_path.is_absolute() {
@@ -109,9 +81,7 @@ pub fn lock(
         fs.create_dir_all(dir, LOCK_DIR_MODE)
             .map_err(|e| LockError::io(dir, e))?;
     }
-    take_current(fs, lock_path, || {
-        take_once(fs, lock_path, kind, guarded, pause)
-    })
+    take_current(fs, lock_path, || take_once(fs, lock_path, pause))
 }
 
 /// The lock `take` grants, taken again while what it granted is no longer
@@ -136,26 +106,17 @@ pub fn take_current(
     })
 }
 
-/// The lock file at `lock_path`, opened (created if need be, recording
-/// `guarded` when given) and locked as `kind`, calling `pause` each time
-/// another holds it, until `pause` gives up.
+/// The lock file at `lock_path`, opened (created if need be) and locked
+/// exclusively, calling `pause` each time another holds it, until `pause`
+/// gives up.
 pub fn take_once(
     fs: &dyn Fs,
     lock_path: &Path,
-    kind: Kind,
-    guarded: Option<&Path>,
     pause: &mut impl FnMut() -> Result<(), LockError>,
 ) -> Result<File, LockError> {
-    if let Some(guarded) = guarded {
-        record(fs, lock_path, guarded)?;
-    }
     let file = open(fs, lock_path)?;
-    let kind = match kind {
-        Kind::Exclusive => LockKind::Exclusive,
-        Kind::Shared => LockKind::Shared,
-    };
     loop {
-        match fs.os().try_lock(&file, kind) {
+        match fs.os().try_lock(&file, LockKind::Exclusive) {
             Ok(true) => return Ok(file),
             Ok(false) => pause()?,
             Err(e) => return Err(LockError::io(lock_path, e)),
@@ -182,104 +143,6 @@ pub fn until(lock_path: &Path, wait: Duration) -> impl FnMut() -> Result<(), Loc
             }),
         }
     }
-}
-
-/// How long [`lock_file`] waits for each lock it takes.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Waits {
-    /// For the sidecar's holder.
-    pub lock: Duration,
-    /// For a reap of the home lock directory to finish.
-    pub reap_interlock: Duration,
-}
-
-impl Waits {
-    /// [`LOCK_WAIT`] and [`REAP_INTERLOCK_WAIT`].
-    pub const DEFAULT: Waits = Waits {
-        lock: LOCK_WAIT,
-        reap_interlock: REAP_INTERLOCK_WAIT,
-    };
-}
-
-/// The locks [`lock_file`] holds, released when dropped: the sidecar
-/// first, then the reap interlock.
-#[derive(Debug)]
-pub struct FileLock {
-    _sidecar: Locked,
-    _interlock: Option<Locked>,
-}
-
-/// The lock under `home` serializing one read-modify-write of `target`, a
-/// file ctxloom does not own. Its sidecar is [`path::sidecar_for`]'s,
-/// recording `target`'s absolute path when it creates it; one in the home
-/// lock directory is taken with the reap interlock held shared from before
-/// the take until after the release, and a reap that holds it past
-/// `waits.reap_interlock` refuses the lock ([`LockError::ReapInProgress`]).
-pub fn lock_file(
-    fs: &dyn Fs,
-    home: &Path,
-    target: &Path,
-    waits: Waits,
-) -> Result<FileLock, LockError> {
-    let target = path::absolute(fs, target)?;
-    let home = path::absolute(fs, home)?;
-    let sidecar = path::sidecar_for(fs, &home, &target);
-    let interlock = match &sidecar.interlock {
-        Some(interlock) => {
-            let mut wait = until(interlock, waits.reap_interlock);
-            let mut reaping = || {
-                wait().map_err(|e| match e {
-                    LockError::Timeout { path, waited_ms } => {
-                        LockError::ReapInProgress { path, waited_ms }
-                    }
-                    other => other,
-                })
-            };
-            Some(lock(fs, interlock, Kind::Shared, None, &mut reaping)?)
-        }
-        None => None,
-    };
-    let held = lock(
-        fs,
-        &sidecar.lock,
-        Kind::Exclusive,
-        Some(&target),
-        &mut until(&sidecar.lock, waits.lock),
-    )?;
-    Ok(FileLock {
-        _sidecar: held,
-        _interlock: interlock,
-    })
-}
-
-/// Create the lock file at `lock_path` recording `guarded` (its path and a
-/// newline, [`record_line`]) when none is there; one already there is left
-/// exactly as it is.
-fn record(fs: &dyn Fs, lock_path: &Path, guarded: &Path) -> Result<(), LockError> {
-    let line = record_line(fs.os().flavor(), guarded)?;
-    let mut file = match fs.open(lock_path, Open::CreateNew(LOCK_FILE_MODE)) {
-        Ok(file) => file,
-        Err(e) if e.kind() == ErrorKind::AlreadyExists => return Ok(()),
-        Err(e) => return Err(LockError::io(lock_path, e)),
-    };
-    file.write_all(&line)
-        .map_err(|e| LockError::io(lock_path, e))
-}
-
-/// The line a lock file records for `guarded` under `flavor`'s rules, as
-/// Go writes it: UTF-8 on Windows (a path with an unpaired surrogate,
-/// which has no UTF-8 spelling, is refused: [`LockError::NotUtf8`]), the
-/// path's bytes on unix; then a newline.
-fn record_line(flavor: os::Flavor, guarded: &Path) -> Result<Vec<u8>, LockError> {
-    let encoded = guarded.as_os_str().as_encoded_bytes();
-    let mut line = flavor
-        .path_record(encoded)
-        .map_err(|_| LockError::NotUtf8 {
-            path: guarded.display().to_string(),
-        })?
-        .to_vec();
-    line.push(b'\n');
-    Ok(line)
 }
 
 /// The lock file at `lock_path`, opened to be locked: read-only when it is
