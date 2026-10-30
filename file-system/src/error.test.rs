@@ -45,6 +45,13 @@ fn test_every_error_has_a_catalog_message_with_exactly_its_args() {
     sampled.sort_unstable();
     assert_eq!(catalog, sampled, "catalog messages and samples");
     for sample in samples {
+        // Display is the key and args, never English (decision 14.37).
+        assert_eq!(
+            sample.to_string(),
+            angzarr_embedded_diagnostic::Report::of(&*sample).to_string(),
+            "{}",
+            sample.code()
+        );
         let message = resource
             .body
             .iter()
