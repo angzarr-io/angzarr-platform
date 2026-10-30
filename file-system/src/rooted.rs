@@ -220,10 +220,6 @@ impl Fs for Rooted {
         std::fs::exists(self.reroot(path)?)
     }
 
-    fn absolute(&self, path: &Path) -> io::Result<PathBuf> {
-        Ok(self.caller(path)?.path())
-    }
-
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
         self.unroot(&real::canonicalize(&*self.os, &self.reroot(path)?)?)
     }

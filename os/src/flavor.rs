@@ -2,7 +2,6 @@
 //! every host.
 
 use std::ffi::OsStr;
-use std::fmt;
 use std::path::PathBuf;
 
 use typed_path::{Utf8WindowsComponent, Utf8WindowsPath, Utf8WindowsPrefix};
@@ -21,20 +20,6 @@ pub enum Flavor {
     Unix,
     Windows,
 }
-
-/// A path with no UTF-8 spelling: on Windows, one holding an unpaired
-/// surrogate, which a lock file's record (UTF-8, as Go writes it) cannot
-/// hold.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct NotUtf8;
-
-impl fmt::Display for NotUtf8 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("the path has no UTF-8 spelling")
-    }
-}
-
-impl std::error::Error for NotUtf8 {}
 
 impl Flavor {
     /// The user's home directory from the environment `var` reads: HOME on
@@ -186,15 +171,6 @@ impl Flavor {
         }
     }
 
-    /// `path` with its separators as `/`: unchanged on unix; every `\`
-    /// replaced on Windows.
-    pub fn to_slash(self, path: &str) -> String {
-        match self {
-            Flavor::Unix => path.to_string(),
-            Flavor::Windows => path.replace('\\', "/"),
-        }
-    }
-
     /// `path` as a person (and Go's index.yaml) writes it: unchanged on
     /// unix; on Windows without the verbatim prefix `canonicalize` adds
     /// (`\\?\C:\x` is `C:\x`, `\\?\UNC\srv\share\x` is `\\srv\share\x`).
@@ -288,20 +264,6 @@ impl Flavor {
         match self {
             Flavor::Unix => path.to_string(),
             Flavor::Windows => format!("{}{}", self.top(), rest.replace('/', "\\")),
-        }
-    }
-
-    /// What a lock file records for a path whose encoded bytes
-    /// (`OsStr::as_encoded_bytes`) are `encoded`, as Go writes it: the
-    /// bytes as they are on unix, UTF-8 or not; on Windows its UTF-8, which
-    /// those bytes are exactly when the path has a UTF-8 spelling, and
-    /// [`NotUtf8`] when it holds an unpaired surrogate.
-    pub fn path_record(self, encoded: &[u8]) -> Result<&[u8], NotUtf8> {
-        match self {
-            Flavor::Unix => Ok(encoded),
-            Flavor::Windows => std::str::from_utf8(encoded)
-                .map(str::as_bytes)
-                .map_err(|_| NotUtf8),
         }
     }
 }

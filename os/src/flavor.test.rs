@@ -155,12 +155,6 @@ fn test_executable_is_an_execute_bit_on_unix_and_any_file_on_windows() {
 // ------------------------------------------------------------ paths
 
 #[test]
-fn test_to_slash_rewrites_only_windows_separators() {
-    assert_eq!(Unix.to_slash(r"a\b/c"), r"a\b/c");
-    assert_eq!(Windows.to_slash(r"C:\a\b/c"), "C:/a/b/c");
-}
-
-#[test]
 fn test_a_windows_path_is_displayed_without_its_verbatim_prefix() {
     assert_eq!(Windows.display_path(r"\\?\C:\Users\u"), r"C:\Users\u");
     assert_eq!(
@@ -246,7 +240,8 @@ fn test_a_path_from_the_top_is_spelled_as_each_flavor_spells_it() {
         let spelled = flavor.from_top("/a/b");
         let (top, rest) = flavor.split_top(&spelled).expect("absolute");
         assert_eq!(top, flavor.top(), "{flavor:?}");
-        assert_eq!(flavor.to_slash(&rest), "a/b", "{flavor:?}");
+        let sep = if flavor == Windows { "\\" } else { "/" };
+        assert_eq!(rest, format!("a{sep}b"), "{flavor:?}");
     }
 }
 
@@ -281,25 +276,6 @@ fn test_a_process_starts_on_no_variable_on_unix_and_the_systems_on_windows() {
         Windows.startup_vars(),
         ["SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "TEMP", "TMP"]
     );
-}
-
-// ------------------------------------------------------------ lock records
-
-#[test]
-fn test_a_unix_path_is_recorded_as_its_bytes_utf8_or_not() {
-    assert_eq!(Unix.path_record(b"/home/u/x"), Ok(&b"/home/u/x"[..]));
-    // Go writes a unix path's bytes as they are, UTF-8 or not.
-    assert_eq!(Unix.path_record(b"/a/\xff"), Ok(&b"/a/\xff"[..]));
-}
-
-#[test]
-fn test_a_windows_path_is_recorded_as_utf8_and_an_unpaired_surrogate_is_refused() {
-    let utf8 = "C:\\Users\\Z\u{00fc}rich".as_bytes();
-    assert_eq!(Windows.path_record(utf8), Ok(utf8));
-    // An unpaired surrogate (U+D800), as std encodes it on Windows: valid
-    // there, but it has no UTF-8 spelling, which Go's record needs.
-    let surrogate = b"C:\\a\xed\xa0\x80";
-    assert_eq!(Windows.path_record(surrogate), Err(super::NotUtf8));
 }
 
 #[test]

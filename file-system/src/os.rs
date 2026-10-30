@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use ::os::Mode;
 
-use crate::rooted::Caller;
 use crate::{real, CwdError, Entry, Fs, Meta, Open, Perms};
 
 /// The real filesystem: `std::fs` on each path as given, a relative one
@@ -125,10 +124,6 @@ impl Fs for Os {
 
     fn exists(&self, path: &Path) -> io::Result<bool> {
         std::fs::exists(self.at(path)?)
-    }
-
-    fn absolute(&self, path: &Path) -> io::Result<PathBuf> {
-        Ok(Caller::parse(&self.at(path)?)?.path())
     }
 
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {

@@ -53,7 +53,7 @@ use std::pin::Pin;
 use std::process::{Child, Command};
 use std::sync::Arc;
 
-pub use flavor::{Flavor, NotUtf8, DEFAULT_PATHEXT};
+pub use flavor::{Flavor, DEFAULT_PATHEXT};
 pub use top::Top;
 
 /// Permission bits (`0o777` at most). On unix they are the mode. On
