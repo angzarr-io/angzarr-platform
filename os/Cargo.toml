@@ -25,5 +25,11 @@ windows-sys = { workspace = true, features = ["Win32_System_Console", "Win32_Sys
 mutants.workspace = true
 tempfile.workspace = true
 
+[features]
+# The test-only API other crates' tests use (`fixture`, `PRIVATE_DIR`,
+# `Flavor::program_file` and `startup_vars`): their dev-dependency turns
+# it on, and no build of a binary does.
+test-support = []
+
 [lints]
 workspace = true

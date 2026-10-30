@@ -40,7 +40,9 @@ use std::time::SystemTime;
 
 use ::os::Mode;
 
-pub use error::{diagnostic_samples, CwdError, EN_US};
+#[cfg(any(test, feature = "test-support"))]
+pub use error::diagnostic_samples;
+pub use error::{CwdError, EN_US};
 pub use os::Os;
 pub use rooted::Rooted;
 

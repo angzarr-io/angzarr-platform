@@ -40,6 +40,8 @@ impl Flavor {
     /// The user's home directory from the environment `var` reads: HOME on
     /// unix, USERPROFILE on Windows (as Go's `os.UserHomeDir`, so Rust and
     /// Go taskloom share one `~/.ctxloom`). A variable set empty is unset.
+    /// For this crate's tests, which hold [`Flavor::home_var`] to Go's.
+    #[cfg(test)]
     pub fn home_dir(self, var: &dyn Fn(&str) -> Option<String>) -> Option<String> {
         var(self.home_var()).filter(|home| !home.is_empty())
     }
@@ -48,7 +50,8 @@ impl Flavor {
     /// whatever runs one with its environment otherwise cleared (a test
     /// isolating the binary): none on unix; on Windows the system's
     /// directories and the temporary one, without which a process cannot
-    /// find its system libraries or start its sockets.
+    /// find its system libraries or start its sockets. Test support.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn startup_vars(self) -> &'static [&'static str] {
         match self {
             Flavor::Unix => &[],
@@ -56,9 +59,10 @@ impl Flavor {
         }
     }
 
-    /// The variable [`Flavor::home_dir`] reads: HOME on unix, USERPROFILE
-    /// on Windows. For a caller holding the environment as the process
-    /// gives it (not UTF-8, perhaps), which reads it without loss.
+    /// The variable the user's home directory is read from: HOME on unix,
+    /// USERPROFILE on Windows (Go's `os.UserHomeDir`). For a caller holding
+    /// the environment as the process gives it (not UTF-8, perhaps), which
+    /// reads it without loss.
     pub fn home_var(self) -> &'static str {
         match self {
             Flavor::Unix => "HOME",
@@ -162,7 +166,9 @@ impl Flavor {
 
     /// The file name a program `command` is installed as, so a search of
     /// PATH ([`Flavor::candidates`]) finds it: the command itself on unix;
-    /// with `.exe` on Windows.
+    /// with `.exe` on Windows. Test support: a test installs a program
+    /// under it.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn program_file(self, command: &str) -> String {
         match self {
             Flavor::Unix => command.to_string(),

@@ -31,7 +31,9 @@ use std::time::{Duration, Instant};
 use file_system::{Fs, Open};
 use os::{LockKind, Mode};
 
-pub use error::{diagnostic_samples, LockError, EN_US};
+#[cfg(any(test, feature = "test-support"))]
+pub use error::diagnostic_samples;
+pub use error::{LockError, EN_US};
 
 /// The lock-taking protocol every taker here follows, as every
 /// ctxloom-family binary reports it (`version --format json`'s

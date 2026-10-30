@@ -64,7 +64,8 @@ pub struct Mode(u32);
 impl Mode {
     /// A file only its owner may read or write.
     pub const PRIVATE_FILE: Mode = Mode(0o600);
-    /// A directory only its owner may enter.
+    /// A directory only its owner may enter. Test support.
+    #[cfg(any(test, feature = "test-support"))]
     pub const PRIVATE_DIR: Mode = Mode(0o700);
     /// A file anyone may read, its owner write.
     pub const FILE: Mode = Mode(0o644);
@@ -192,7 +193,9 @@ pub fn ctrl_break(child: &Child) -> io::Result<()> {
 
 /// A test fixture's absolute path, written the unix way (`/home/u`), as
 /// the host spells it ([`Flavor::from_top`]: `C:\home\u` on Windows): the
-/// one way a test names a path that is absolute on every host.
+/// one way a test names a path that is absolute on every host. Test
+/// support.
+#[cfg(any(test, feature = "test-support"))]
 pub fn fixture(path: &str) -> PathBuf {
     PathBuf::from(host().flavor().from_top(path))
 }

@@ -83,6 +83,7 @@ impl Diagnostic for LockError {
 pub const EN_US: (&str, &str) = ("file-lock", include_str!("../locales/en-US/file-lock.ftl"));
 
 /// One value of every error this crate defines, for the catalog test.
+#[cfg(any(test, feature = "test-support"))]
 pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     let path = || "/home/u/.ctxloom/locks/u__.claude.json__d07667d34aae78ed.lock".to_string();
     vec![
