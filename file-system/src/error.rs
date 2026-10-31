@@ -38,11 +38,11 @@ impl fmt::Display for CwdError {
 impl std::error::Error for CwdError {}
 
 impl Diagnostic for CwdError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         "file-system-no-cwd"
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         vec![("reason", self.reason.as_str().into())]
     }
 }

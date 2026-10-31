@@ -39,7 +39,7 @@ impl fmt::Display for LockError {
 impl std::error::Error for LockError {}
 
 impl Diagnostic for LockError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             LockError::Io { .. } => "file-lock-io",
             LockError::RelativePath { .. } => "file-lock-relative-path",
@@ -49,7 +49,7 @@ impl Diagnostic for LockError {
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         let s = |v: &String| Arg::from(v.as_str());
         match self {
             LockError::Io { path, detail } => vec![("path", s(path)), ("ext_err_txt", s(detail))],

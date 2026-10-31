@@ -6,7 +6,7 @@ crate::english_for!(&[crate::EN_US.1]);
 
 use super::{diagnostic_samples, CwdError};
 
-fn arg_names(d: &dyn Diagnostic) -> Vec<&'static str> {
+fn arg_names(d: &dyn Diagnostic) -> Vec<&str> {
     d.args().into_iter().map(|(name, _)| name).collect()
 }
 
