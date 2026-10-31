@@ -3,7 +3,7 @@
 use std::fmt;
 use std::io;
 
-use angzarr_embedded_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{Arg, Diagnostic};
 
 /// The working directory the filesystem was made over could not be read
 /// (it was deleted, or is not searchable): [`crate::Fs::cwd`] says so,
@@ -31,7 +31,7 @@ impl CwdError {
 
 impl fmt::Display for CwdError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_embedded_diagnostic::display(self, f)
+        angzarr_diagnostic::display(self, f)
     }
 }
 

@@ -1,6 +1,6 @@
 //! The error's English and the catalog.
 
-use angzarr_embedded_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{Arg, Diagnostic};
 
 crate::english_for!(&[crate::EN_US.1]);
 
@@ -48,7 +48,7 @@ fn test_every_error_has_a_catalog_message_with_exactly_its_args() {
         // Display is the key and args, never English (decision 14.37).
         assert_eq!(
             sample.to_string(),
-            angzarr_embedded_diagnostic::Report::of(&*sample).to_string(),
+            angzarr_diagnostic::Report::of(&*sample).to_string(),
             "{}",
             sample.code()
         );
