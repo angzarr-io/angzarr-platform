@@ -3,7 +3,7 @@
 use std::fmt;
 use std::io;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 
 /// The working directory the filesystem was made over could not be read
 /// (it was deleted, or is not searchable): [`crate::Fs::cwd`] says so,
@@ -39,7 +39,7 @@ impl std::error::Error for CwdError {}
 
 impl Diagnostic for CwdError {
     fn code(&self) -> &str {
-        "file-system-no-cwd"
+        code!("no-cwd")
     }
 
     fn args(&self) -> Vec<(&str, Arg)> {
@@ -48,10 +48,11 @@ impl Diagnostic for CwdError {
 }
 
 /// This crate's en-US messages, its name first: what an edge's catalog
-/// embeds to render its diagnostics.
+/// embeds to render its diagnostics. The text of `locales/en-US/messages.ftl`,
+/// its ids under the crate's package name (`angzarr_diagnostic::build`).
 pub const EN_US: (&str, &str) = (
-    "file-system",
-    include_str!("../locales/en-US/file-system.ftl"),
+    env!("CARGO_PKG_NAME"),
+    include_str!(concat!(env!("OUT_DIR"), "/en-US.ftl")),
 );
 
 /// One value of every error, for the catalog test.

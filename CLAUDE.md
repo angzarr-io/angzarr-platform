@@ -51,9 +51,12 @@ from `[workspace.package]`. A new crate sets `license.workspace = true` and
 
 Every error implements `angzarr_diagnostic::Diagnostic`: a stable code,
 kebab-case under its crate's name (`file-lock-timeout`), and named args.
-Its `Display` is the code and args, never English. The English is the
-crate's `locales/en-US/<crate>.ftl`, exported as `EN_US`, one message per
-code using exactly its args; each crate's `diagnostic_samples()` (behind
+A code is written `code!("timeout")`, which prefixes the package name, so
+no code spells its crate's name. Its `Display` is the code and args, never
+English. The English is the crate's `locales/en-US/messages.ftl`, its ids
+the codes' suffixes, which `build.rs` (`angzarr_diagnostic::build::catalogs`)
+writes under the package name; `EN_US` is that output, named by
+`CARGO_PKG_NAME`, one message per code using exactly its args; each crate's `diagnostic_samples()` (behind
 `test-support`) holds one value of every error, and its tests hold the
 catalog to them and each message's English to its expected text.
 

@@ -3,7 +3,7 @@
 use std::fmt;
 use std::path::Path;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum LockError {
@@ -41,11 +41,11 @@ impl std::error::Error for LockError {}
 impl Diagnostic for LockError {
     fn code(&self) -> &str {
         match self {
-            LockError::Io { .. } => "file-lock-io",
-            LockError::RelativePath { .. } => "file-lock-relative-path",
-            LockError::NotRegular { .. } => "file-lock-not-regular",
-            LockError::Timeout { .. } => "file-lock-timeout",
-            LockError::Replaced { .. } => "file-lock-replaced",
+            LockError::Io { .. } => code!("io"),
+            LockError::RelativePath { .. } => code!("relative-path"),
+            LockError::NotRegular { .. } => code!("not-regular"),
+            LockError::Timeout { .. } => code!("timeout"),
+            LockError::Replaced { .. } => code!("replaced"),
         }
     }
 
@@ -67,8 +67,12 @@ impl Diagnostic for LockError {
 }
 
 /// This crate's en-US messages, its name first: what an edge's catalog
-/// embeds to render its diagnostics.
-pub const EN_US: (&str, &str) = ("file-lock", include_str!("../locales/en-US/file-lock.ftl"));
+/// embeds to render its diagnostics. The text of `locales/en-US/messages.ftl`,
+/// its ids under the crate's package name (`angzarr_diagnostic::build`).
+pub const EN_US: (&str, &str) = (
+    env!("CARGO_PKG_NAME"),
+    include_str!(concat!(env!("OUT_DIR"), "/en-US.ftl")),
+);
 
 /// One value of every error this crate defines, for the catalog test.
 #[cfg(any(test, feature = "test-support"))]

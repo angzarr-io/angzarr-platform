@@ -22,8 +22,8 @@ file-system = { path = "crates/file-system" }
 # for the tests that hold each error's English to its expected text. A user
 # of these crates pins angzarr core at the same rev, so its graph holds one
 # angzarr-diagnostic.
-angzarr-diagnostic = { git = "https://github.com/angzarr-io/angzarr", rev = "d80f97821b76ca61366078a09df270f89769721e" }
-angzarr-presentation = { git = "https://github.com/angzarr-io/angzarr", rev = "d80f97821b76ca61366078a09df270f89769721e" }
+angzarr-diagnostic = { git = "https://github.com/angzarr-io/angzarr", rev = "4d7ef3573aad114d789a9c30f9cd702d7bb5c213" }
+angzarr-presentation = { git = "https://github.com/angzarr-io/angzarr", rev = "4d7ef3573aad114d789a9c30f9cd702d7bb5c213" }
 
 # Third-party.
 # The catalogs' tests read each catalog's messages and variables.

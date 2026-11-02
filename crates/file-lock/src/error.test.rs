@@ -20,7 +20,7 @@ fn test_a_timeout_names_the_lock_and_how_long_it_waited() {
         timeout.english(),
         "the lock /h/.ctxloom/locks/x.lock is still held after 30ms: another ctxloom, taskloom or ltk process holds it; try again once it exits"
     );
-    assert_eq!(timeout.code(), "file-lock-timeout");
+    assert_eq!(timeout.code(), angzarr_diagnostic::code!("timeout"));
     assert_eq!(arg_names(&timeout), ["path", "waited_ms"]);
 }
 
@@ -75,4 +75,16 @@ fn test_every_error_has_a_catalog_message_with_exactly_its_args() {
         args.sort_unstable();
         assert_eq!(used, args, "{}", sample.code());
     }
+}
+
+/// The catalog is exported under the crate's package name, and every code
+/// is under that name, with its message using exactly its args.
+#[test]
+fn test_every_code_is_under_the_crates_name_with_its_message() {
+    let (name, text) = crate::EN_US;
+    assert_eq!(name, env!("CARGO_PKG_NAME"));
+    assert_eq!(
+        angzarr_diagnostic::catalog::check(name, text, &diagnostic_samples()),
+        []
+    );
 }

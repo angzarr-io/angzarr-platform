@@ -16,7 +16,8 @@ applications:
 
 Every error is an `angzarr-diagnostic` `Diagnostic` (a stable code and
 named args), its en-US message in the crate's Fluent catalog
-(`locales/en-US/<crate>.ftl`, exported as `EN_US`).
+(`locales/en-US/messages.ftl`, its ids prefixed with the package name at
+build time, exported as `EN_US`).
 
 ## Use
 

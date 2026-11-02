@@ -19,7 +19,7 @@ fn test_a_cwd_error_says_why_the_working_directory_cannot_be_read() {
         error.english(),
         "the working directory cannot be read: gone"
     );
-    assert_eq!(error.code(), "file-system-no-cwd");
+    assert_eq!(error.code(), angzarr_diagnostic::code!("no-cwd"));
     assert!(
         matches!(&error.args()[..], [("reason", Arg::Str(r))] if r == "gone"),
         "{error:?}"
@@ -77,4 +77,16 @@ fn test_every_error_has_a_catalog_message_with_exactly_its_args() {
         args.sort_unstable();
         assert_eq!(used, args, "{}", sample.code());
     }
+}
+
+/// The catalog is exported under the crate's package name, and every code
+/// is under that name, with its message using exactly its args.
+#[test]
+fn test_every_code_is_under_the_crates_name_with_its_message() {
+    let (name, text) = crate::EN_US;
+    assert_eq!(name, env!("CARGO_PKG_NAME"));
+    assert_eq!(
+        angzarr_diagnostic::catalog::check(name, text, &diagnostic_samples()),
+        []
+    );
 }
