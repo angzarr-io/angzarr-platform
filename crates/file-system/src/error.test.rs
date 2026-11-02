@@ -2,7 +2,7 @@
 
 use angzarr_diagnostic::{Arg, Diagnostic};
 
-crate::english_for!(&[crate::EN_US.1]);
+angzarr_presentation::english_for!(&[crate::EN_US.1]);
 
 use super::{diagnostic_samples, CwdError};
 

@@ -186,7 +186,3 @@ fn require_regular(file: &File, lock_path: &Path) -> Result<(), LockError> {
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "../../../../adapters/driving/presentation/src/english.test.rs"]
-mod english;

@@ -1,0 +1,67 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2021"
+# The crates use std up to 1.83 (fs::exists, io::ErrorKind variants); held
+# to the toolchain they were written against (rust-toolchain.toml).
+rust-version = "1.96"
+license = "Apache-2.0 OR BSD-3-Clause"
+# Not published to crates.io; shared by git only.
+publish = false
+
+[workspace.dependencies]
+os = { path = "crates/os" }
+file-system = { path = "crates/file-system" }
+
+# angzarr core's shared crates, pinned by full commit; bumps are deliberate
+# commits. angzarr-diagnostic is the coded error trait every error here
+# implements. angzarr-presentation is a dev-dependency only: its
+# `test-support` feature renders a diagnostic's English from the catalogs,
+# for the tests that hold each error's English to its expected text. A user
+# of these crates pins angzarr core at the same rev, so its graph holds one
+# angzarr-diagnostic.
+angzarr-diagnostic = { git = "https://github.com/angzarr-io/angzarr", rev = "d80f97821b76ca61366078a09df270f89769721e" }
+angzarr-presentation = { git = "https://github.com/angzarr-io/angzarr", rev = "d80f97821b76ca61366078a09df270f89769721e" }
+
+# Third-party.
+# The catalogs' tests read each catalog's messages and variables.
+fluent-syntax = "0.11"
+fs4 = "1.1"
+# `#[mutants::skip]`, for a mutant judged equivalent, behind
+# `cfg_attr(test, ...)`: a dev-dependency, so it links nothing new.
+mutants = "0.0.4"
+tempfile = "3"
+# The file-system seam on Windows: directory links as junctions, and file
+# identity by volume and file index. Pinned exactly: junction at 2.1.0
+# (2026-09-24), same-file at 1.0.6 (2020-01-11).
+junction = "=2.1.0"
+same-file = "=1.0.6"
+# The os crate's Windows console calls (a Ctrl-Break sent to a child's
+# process group, in tests). Pinned exactly, at 0.61.2 (2025-10-06).
+windows-sys = "=0.61.2"
+# The os crate's path logic for every flavor on every host: Windows paths
+# parsed on Linux, so their display and comparison keys are tested here.
+# Pinned exactly, at 0.12.3 (2026-02-11). MIT OR Apache-2.0; no
+# dependencies.
+typed-path = "=0.12.3"
+tokio = { version = "1", features = ["rt", "time"] }
+
+# Every crate opts in with `[lints] workspace = true`.
+[workspace.lints.clippy]
+# Zero-width and other invisible characters in source: never intended.
+invisible_characters = "deny"
+# A literal in another normalization form than NFC reads the same as its NFC
+# twin and compares unequal.
+unicode_not_nfc = "deny"
+# Non-ASCII in a literal is written as an escape, so what the code holds is
+# visible. Allowed, with a comment, only where a test's corpus is the point.
+non_ascii_literal = "deny"
+# Complexity is taskloom's gate: cognitive_complexity and too_many_lines at
+# clippy's defaults (25, 100), excessive_nesting at clippy.toml's threshold.
+# All warn, and `just lint` (the pre-commit clippy gate) denies warnings over
+# every target.
+cognitive_complexity = "warn"
+too_many_lines = "warn"
+excessive_nesting = "warn"
