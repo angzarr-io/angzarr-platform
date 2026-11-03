@@ -5,15 +5,16 @@ version = 4
 [[package]]
 name = "angzarr-diagnostic"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr?rev=4d7ef3573aad114d789a9c30f9cd702d7bb5c213#4d7ef3573aad114d789a9c30f9cd702d7bb5c213"
+source = "git+https://github.com/angzarr-io/angzarr?rev=2681dab885c8a3f138a0964f4d6b628d2480963f#2681dab885c8a3f138a0964f4d6b628d2480963f"
 
 [[package]]
 name = "angzarr-presentation"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr?rev=4d7ef3573aad114d789a9c30f9cd702d7bb5c213#4d7ef3573aad114d789a9c30f9cd702d7bb5c213"
+source = "git+https://github.com/angzarr-io/angzarr?rev=2681dab885c8a3f138a0964f4d6b628d2480963f#2681dab885c8a3f138a0964f4d6b628d2480963f"
 dependencies = [
  "angzarr-diagnostic",
  "fluent-bundle",
+ "fluent-langneg",
  "serde",
  "serde_json",
  "unic-langid",
