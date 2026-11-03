@@ -5,12 +5,12 @@ version = 4
 [[package]]
 name = "angzarr-diagnostic"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr?rev=2681dab885c8a3f138a0964f4d6b628d2480963f#2681dab885c8a3f138a0964f4d6b628d2480963f"
+source = "git+https://github.com/angzarr-io/angzarr?rev=dd59566a017474732a344caf3d1c8fc26d90481b#dd59566a017474732a344caf3d1c8fc26d90481b"
 
 [[package]]
 name = "angzarr-presentation"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr?rev=2681dab885c8a3f138a0964f4d6b628d2480963f#2681dab885c8a3f138a0964f4d6b628d2480963f"
+source = "git+https://github.com/angzarr-io/angzarr?rev=dd59566a017474732a344caf3d1c8fc26d90481b#dd59566a017474732a344caf3d1c8fc26d90481b"
 dependencies = [
  "angzarr-diagnostic",
  "fluent-bundle",
