@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::task::Poll;
 
+use process_wrap::std::{ChildWrapper, CommandWrap, JobObject};
 use tokio::signal::windows as signal;
 
 #[cfg(any(test, feature = "test-support"))]
@@ -131,4 +132,15 @@ pub(crate) fn not_unicode(prefix: &str) -> OsString {
     let mut wide: Vec<u16> = prefix.encode_utf16().collect();
     wide.push(0xD800);
     OsString::from_wide(&wide)
+}
+
+#[cfg_attr(test, mutants::skip)]
+pub(crate) fn wrap_tree(wrap: &mut CommandWrap) {
+    wrap.wrap(JobObject);
+}
+
+// A job has no graceful stop: the kill that follows is the stop.
+#[cfg_attr(test, mutants::skip)]
+pub(crate) fn request_stop(_child: &dyn ChildWrapper) -> bool {
+    false
 }

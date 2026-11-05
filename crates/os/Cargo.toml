@@ -15,8 +15,11 @@ fs4.workspace = true
 # caller's runtime.
 tokio = { workspace = true, features = ["signal"] }
 typed-path.workspace = true
+# The process tree kill: a process group on unix, a job object on Windows.
+process-wrap.workspace = true
 
 [target.'cfg(windows)'.dependencies]
+process-wrap = { workspace = true, features = ["job-object"] }
 junction.workspace = true
 same-file.workspace = true
 windows-sys = { workspace = true, features = ["Win32_System_Console", "Win32_System_Threading"] }

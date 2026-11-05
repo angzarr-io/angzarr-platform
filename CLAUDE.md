@@ -22,9 +22,11 @@ one belongs in that application's repository.
   scripts/os-cfg-check.sh, holds the others to that). It depends on `fs4`
   (advisory locks: flock on unix, LockFileEx on Windows), `tokio`'s
   `signal` (the stop signal, as a future on the caller's runtime) and
-  `typed-path` (every flavor's path logic on every host); on Windows,
-  `junction`, `same-file` and `windows-sys`, each pinned exactly in
-  Cargo.toml.
+  `typed-path` (every flavor's path logic on every host) and
+  `process-wrap` (std frontend: a child as a process tree that one call
+  kills, `os::process`; a process group via `nix` on unix, a job object
+  via `windows` on Windows); on Windows, `junction`, `same-file` and
+  `windows-sys`, each pinned exactly in Cargo.toml.
 - **file-system** is the seam every filesystem operation goes through. It
   depends on `os`, `angzarr-diagnostic` (its errors' codes and args) and
   `tempfile` (an atomic write's staged file, a re-rooted filesystem's own

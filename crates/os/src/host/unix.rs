@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::task::Poll;
 
+use process_wrap::std::{ChildWrapper, CommandWrap, ProcessGroup};
 use tokio::signal::unix::{signal, SignalKind};
 
 use crate::{Flavor, LockKind, Mode, Os, StopSignal};
@@ -101,4 +102,16 @@ pub(crate) fn not_unicode(prefix: &str) -> OsString {
     let mut bytes = prefix.as_bytes().to_vec();
     bytes.push(0xff);
     OsString::from_vec(bytes)
+}
+
+/// SIGTERM's number, which POSIX leaves to the system but every unix
+/// target of this workspace (Linux, macOS, the BSDs) gives as 15.
+const SIGTERM: i32 = 15;
+
+pub(crate) fn wrap_tree(wrap: &mut CommandWrap) {
+    wrap.wrap(ProcessGroup::leader());
+}
+
+pub(crate) fn request_stop(child: &dyn ChildWrapper) -> bool {
+    child.signal(SIGTERM).is_ok()
 }

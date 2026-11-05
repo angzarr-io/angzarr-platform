@@ -5,7 +5,7 @@ use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;
 use std::task::{Context, Poll, Waker};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
 
@@ -167,7 +167,14 @@ fn test_an_exclusive_lock_excludes_and_shared_locks_share() {
     assert!(!os.try_lock(&second, LockKind::Shared).unwrap());
     drop(first);
     let third = file(&path);
-    assert!(os.try_lock(&second, LockKind::Shared).unwrap());
+    // A process another test of this run is starting (`cargo test` runs
+    // them as threads of one process) holds a copy of `first` until it
+    // execs, so the release can be a moment late.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !os.try_lock(&second, LockKind::Shared).unwrap() {
+        assert!(Instant::now() < deadline, "the lock was never released");
+        std::thread::yield_now();
+    }
     assert!(os.try_lock(&third, LockKind::Shared).unwrap());
     assert!(
         !os.try_lock(&file(&path), LockKind::Exclusive).unwrap(),
