@@ -14,6 +14,8 @@ publish = false
 [workspace.dependencies]
 os = { path = "crates/os" }
 file-system = { path = "crates/file-system" }
+file-lock = { path = "crates/file-lock" }
+store-jsonl = { path = "crates/store-jsonl" }
 
 # angzarr core's shared crates, pinned by full commit; bumps are deliberate
 # commits. angzarr-diagnostic is the coded error trait every error here
@@ -24,6 +26,11 @@ file-system = { path = "crates/file-system" }
 # angzarr-diagnostic.
 angzarr-diagnostic = { git = "https://github.com/angzarr-io/angzarr", rev = "4d7ef3573aad114d789a9c30f9cd702d7bb5c213" }
 angzarr-presentation = { git = "https://github.com/angzarr-io/angzarr", rev = "4d7ef3573aad114d789a9c30f9cd702d7bb5c213" }
+# The store crate's ports, wire types and codec: the same rev. angzarr-ports
+# is built with its `memory` feature (the in-memory store the journal is
+# replayed into) and, for the tests, `contract` (the conformance suite).
+angzarr-ports = { git = "https://github.com/angzarr-io/angzarr", rev = "4d7ef3573aad114d789a9c30f9cd702d7bb5c213" }
+angzarr-proto-jsonl = { git = "https://github.com/angzarr-io/angzarr", rev = "4d7ef3573aad114d789a9c30f9cd702d7bb5c213" }
 
 # Third-party.
 # The catalogs' tests read each catalog's messages and variables.
@@ -47,6 +54,13 @@ windows-sys = "=0.61.2"
 # dependencies.
 typed-path = "=0.12.3"
 tokio = { version = "1", features = ["rt", "time"] }
+# store-jsonl's journal: its messages (prost, prost-types for `Any`), and
+# the dynamic messages and descriptors the JSON Lines codec reads and
+# writes (prost-reflect: the version angzarr-proto-jsonl uses, so the graph
+# holds one). All three are already in angzarr core's graph.
+prost = "0.14"
+prost-types = "0.14"
+prost-reflect = "0.16.5"
 
 # Every crate opts in with `[lints] workspace = true`.
 [workspace.lints.clippy]

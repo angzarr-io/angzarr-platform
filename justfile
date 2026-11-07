@@ -16,7 +16,7 @@ import 'gates/gates.just'
 # by the longest prefix its file matches; one matching none fails the gate,
 # so a new crate gets a threshold before it gets code. Every crate is held
 # to the same bar.
-mutation_thresholds := "crates/os=90 crates/file-system=90 crates/file-lock=90"
+mutation_thresholds := "crates/os=90 crates/file-system=90 crates/file-lock=90 crates/store-jsonl=90"
 
 # Staged paths outside any crate that test the whole workspace (bash globs,
 # `*` crossing `/`).
