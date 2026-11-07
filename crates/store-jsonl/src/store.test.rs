@@ -867,8 +867,8 @@ async fn test_a_failed_append_poisons_the_store_and_the_journal_decides() {
 async fn test_a_crash_in_the_middle_of_an_append_loses_that_operation_only() {
     let fs = home();
     let (store, _) = open_flaky(&fs, 3, true);
-    populate_three(&store).await;
-    let failed = append(&store, s1(), 3, &[page(3, 1)]).await;
+    three_operations(&store).await;
+    let failed = append(&store, s1(), 2, &[page(2, 1)]).await;
     assert_eq!(failed, Err(append_failed()));
     drop(store);
 
@@ -877,15 +877,14 @@ async fn test_a_crash_in_the_middle_of_an_append_loses_that_operation_only() {
     let notice = reopened.recovered.expect("a torn tail");
     assert_eq!(notice.line, 5);
     assert!(notice.bytes > 0);
-    assert_eq!(reopened.store.head(s1()).await.unwrap().next_sequence, 3);
+    assert_eq!(reopened.store.head(s1()).await.unwrap().next_sequence, 2);
     assert_eq!(reopened.store.head(s2()).await.unwrap().next_sequence, 1);
 }
 
-async fn populate_three(store: &JsonlStore) {
+async fn three_operations(store: &JsonlStore) {
     append(store, s1(), 0, &[page(0, 1)]).await.unwrap();
     append(store, s1(), 1, &[page(1, 1)]).await.unwrap();
     append(store, s2(), 0, &[page(0, 1)]).await.unwrap();
-    append(store, s1(), 2, &[page(2, 1)]).await.unwrap_err();
 }
 
 #[tokio::test]

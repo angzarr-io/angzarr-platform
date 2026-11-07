@@ -1,8 +1,8 @@
 //! The store: the in-memory store, and the journal that makes it durable.
 
-use std::io;
+use std::fmt;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use angzarr_ports::angzarr_proto::v1::{Cover, EditionSummary, EventBook, EventPage, Snapshot};
 use angzarr_ports::memory::{MemoryRead, MemoryStore};
@@ -16,20 +16,13 @@ use file_system::Fs;
 use prost_types::Timestamp;
 
 use crate::entry::{self, Plan};
-use crate::error::{OpenError, TornTail};
-
-/// Whether an append is synced before the call returns.
-#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
-pub enum Durability {
-    /// `sync_all` after every append: an operation that returned is on
-    /// disk. The default.
-    #[default]
-    Durable,
-    /// No sync: an operation that returned is in the operating system's
-    /// hands, and survives the process but not a power cut. For tests and
-    /// ephemeral stores.
-    Unsynced,
-}
+use crate::error::{Failure, OpenError, TornTail};
+use crate::journal;
+pub use crate::journal::Durability;
+pub(crate) use crate::journal::Sink;
+use crate::ready::ready;
+use crate::schema::Schema;
+use file_lock::Locked;
 
 /// How a store is opened.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -52,31 +45,37 @@ pub struct JsonlStore {
     shared: Arc<Shared>,
 }
 
-#[derive(Debug)]
+/// What every handle shares.
 struct Shared {
     path: PathBuf,
+    inner: MemoryStore,
+    schema: Schema,
+    /// Held by every operation, reads included, for as long as it runs:
+    /// the in-memory commit and the append are one step, so the journal's
+    /// order is the commit order and no reader sees a state the journal
+    /// does not hold.
+    gate: Mutex<Gate>,
+    /// The filesystem the journal is on, kept for as long as the store is.
+    _fs: Arc<dyn Fs>,
 }
 
-/// Where an accepted operation's line is appended: the journal file, or in
-/// a test a stand-in that fails or tears.
-pub(crate) trait Sink: Send {
-    /// Append `line` (it ends with its line feed) to the journal, whole or
-    /// not at all, and make it durable if the store was opened durable.
-    fn append(&mut self, line: &[u8]) -> io::Result<()>;
+impl fmt::Debug for Shared {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JsonlStore")
+            .field("journal", &self.path)
+            .finish_non_exhaustive()
+    }
+}
+
+struct Gate {
+    sink: Box<dyn Sink>,
+    /// An append failed: the in-memory store may be ahead of the journal.
+    poisoned: bool,
+    /// Released after the sink, when the last handle goes.
+    _lock: Locked,
 }
 
 impl JsonlStore {
-    /// Open as [`JsonlStore::open_with`], with the journal's sink passed
-    /// through `wrap`: how the tests fail or tear an append.
-    pub(crate) fn open_wrapping(
-        _fs: Arc<dyn Fs>,
-        _journal: &Path,
-        _options: Options,
-        _wrap: impl FnOnce(Box<dyn Sink>) -> Box<dyn Sink>,
-    ) -> Result<Opened, OpenError> {
-        todo!()
-    }
-
     /// Open the journal at `journal`, an absolute path, with the default
     /// [`Options`]. See [`JsonlStore::open_with`].
     pub fn open(fs: Arc<dyn Fs>, journal: &Path) -> Result<Opened, OpenError> {
@@ -84,14 +83,47 @@ impl JsonlStore {
     }
 
     /// Open the journal at `journal`, an absolute path, making it (and its
-    /// directory) if it is not there: take its exclusive lock, replay it
-    /// into memory, and repair a torn last line.
+    /// directory) if it is not there: take its exclusive lock (refused with
+    /// [`OpenError::InUse`] while another store holds it), replay it into
+    /// memory, and repair a torn last line, reported in
+    /// [`Opened::recovered`].
     pub fn open_with(
-        _fs: Arc<dyn Fs>,
-        _journal: &Path,
-        _options: Options,
+        fs: Arc<dyn Fs>,
+        journal: &Path,
+        options: Options,
     ) -> Result<Opened, OpenError> {
-        todo!()
+        JsonlStore::open_wrapping(fs, journal, options, |sink| sink)
+    }
+
+    /// Open as [`JsonlStore::open_with`], with the journal's sink passed
+    /// through `wrap`: how the tests fail or tear an append.
+    pub(crate) fn open_wrapping(
+        fs: Arc<dyn Fs>,
+        journal: &Path,
+        options: Options,
+        wrap: impl FnOnce(Box<dyn Sink>) -> Box<dyn Sink>,
+    ) -> Result<Opened, OpenError> {
+        let schema = Schema::new();
+        let inner = MemoryStore::new();
+        let opened = journal::open(&fs, journal, options.durability, &schema, &inner)?;
+        let gate = Gate {
+            sink: wrap(opened.sink),
+            poisoned: false,
+            _lock: opened.lock,
+        };
+        let store = JsonlStore {
+            shared: Arc::new(Shared {
+                path: journal.to_path_buf(),
+                inner,
+                schema,
+                gate: Mutex::new(gate),
+                _fs: fs,
+            }),
+        };
+        Ok(Opened {
+            store,
+            recovered: opened.recovered,
+        })
     }
 
     /// The journal's path.
@@ -99,23 +131,76 @@ impl JsonlStore {
         &self.shared.path
     }
 
+    fn gate(&self) -> MutexGuard<'_, Gate> {
+        // A panic under the lock leaves the journal whole (a line is
+        // appended or not) and the in-memory store checked-then-changed in
+        // one step, so a poisoned mutex is still sound.
+        self.shared
+            .gate
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
     /// Run a read against the in-memory store, under the lock the writes
     /// take, so it sees only what the journal holds.
     fn observe<T>(
         &self,
-        _read: impl AsyncFnOnce(&MemoryStore) -> Result<T, StoreError>,
+        read: impl AsyncFnOnce(&MemoryStore) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
-        todo!()
+        let gate = self.gate();
+        if gate.poisoned {
+            return Err(Failure::Poisoned.into_store_error());
+        }
+        ready(read(&self.shared.inner))
+            .unwrap_or_else(|| Err(Failure::Suspended.into_store_error()))
     }
 
     /// Run an operation against the in-memory store and, if it accepted it,
-    /// append `plan`'s line before returning.
+    /// append `plan`'s line before returning. An operation the store refuses
+    /// appends nothing; one it accepted whose line could not be appended
+    /// leaves the store poisoned.
     fn commit<T>(
         &self,
-        _plan: Plan,
-        _op: impl AsyncFnOnce(&MemoryStore) -> Result<T, StoreError>,
+        plan: Plan,
+        op: impl AsyncFnOnce(&MemoryStore) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
-        todo!()
+        let mut gate = self.gate();
+        if gate.poisoned {
+            return Err(Failure::Poisoned.into_store_error());
+        }
+        // The line is made before the operation runs, so that a line that
+        // cannot be made refuses the operation instead of following it.
+        let line =
+            match &plan {
+                Plan::Line(entry) => Some(journal::encode(&self.shared.schema, entry).map_err(
+                    |ext_err_txt| Failure::EncodeFailed { ext_err_txt }.into_store_error(),
+                )?),
+                Plan::Skip | Plan::Unencodable => None,
+            };
+        let Some(result) = ready(op(&self.shared.inner)) else {
+            gate.poisoned = true;
+            return Err(Failure::Suspended.into_store_error());
+        };
+        let value = result?;
+        let appended = match (line, plan) {
+            (Some(line), _) => {
+                gate.sink
+                    .append(line.as_bytes())
+                    .map_err(|e| Failure::AppendFailed {
+                        ext_err_txt: e.to_string(),
+                    })
+            }
+            // The store accepted what no entry can record.
+            (None, Plan::Unencodable) => Err(Failure::EncodeFailed {
+                ext_err_txt: "an accepted operation has no entry".to_string(),
+            }),
+            (None, _) => Ok(()),
+        };
+        if let Err(failure) = appended {
+            gate.poisoned = true;
+            return Err(failure.into_store_error());
+        }
+        Ok(value)
     }
 }
 

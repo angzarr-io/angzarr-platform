@@ -72,10 +72,9 @@
 //! (and the sync) on the caller's thread. A caller on an async runtime that
 //! must not block runs the call on a blocking thread.
 
-#![allow(dead_code, reason = "stubbed until the journal is implemented")]
-
 mod entry;
 mod error;
+mod journal;
 mod ready;
 pub mod schema;
 mod store;
