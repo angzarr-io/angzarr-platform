@@ -32,6 +32,21 @@ one belongs in that application's repository.
   `disallowed-methods`, each one's `#![allow]` saying why).
 - **file-lock** depends on `os`, `file-system` and `angzarr-diagnostic`.
 
+- **file-lock** and **file-system** are also what **store-jsonl** is built
+  on. It is an angzarr store (`JsonlStore`) kept in one append-only JSON
+  Lines journal, opened through an `Fs`, locked with `file-lock`, and
+  single-process by construction (it claims none of the conformance suite's
+  `shared_handles*` sections). It depends on `angzarr-ports` (the ports it
+  implements, with the `memory` feature: the in-memory store the journal is
+  replayed into; the `contract` feature for the tests) and
+  `angzarr-proto-jsonl` (the JSON Lines codec), both angzarr core's, pinned
+  with `angzarr-diagnostic`; on `prost` and `prost-types` (its journal
+  messages, and the wire types it keeps as bytes), and `prost-reflect` (the
+  dynamic messages and descriptors the codec reads and writes, the version
+  `angzarr-proto-jsonl` uses). Its messages and descriptor are written by
+  hand, so building it needs no `protoc`. For its tests, `tokio` (the
+  conformance checks are async) with `macros` and `rt-multi-thread`.
+
 `angzarr-diagnostic` and, for the tests only, `angzarr-presentation`
 (its `test-support` feature: `english_for!`, a diagnostic's English
 rendered from the catalogs) are angzarr core's shared crates, pinned by

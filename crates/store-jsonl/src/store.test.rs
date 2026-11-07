@@ -682,7 +682,43 @@ fn test_the_repair_is_a_notice_a_person_can_read() {
     );
 }
 
+#[test]
+fn test_a_store_debugs_as_its_journal() {
+    let fs = home();
+    let store = open(&fs).store;
+    let shown = format!("{store:?}");
+    assert!(
+        shown.contains("JsonlStore") && shown.contains(JOURNAL),
+        "{shown}"
+    );
+}
+
 // ------------------------------------------------------- a journal not to open
+
+#[test]
+fn test_a_journal_that_cannot_be_read_is_an_io_error() {
+    let fs = home();
+    // A directory where the journal should be.
+    fs.create_dir_all(journal(), Mode::DIR).unwrap();
+    let err = JsonlStore::open(Arc::clone(&fs), journal()).unwrap_err();
+    assert!(
+        matches!(&err, OpenError::Io { path, .. } if path == JOURNAL),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn test_a_lock_that_cannot_be_taken_is_a_lock_error() {
+    let fs = home();
+    // A directory where the lock file should be.
+    fs.create_dir_all(Path::new("/data/store.jsonl.lock"), Mode::DIR)
+        .unwrap();
+    let err = JsonlStore::open(Arc::clone(&fs), journal()).unwrap_err();
+    assert!(
+        matches!(&err, OpenError::Lock { path, .. } if path == JOURNAL),
+        "{err:?}"
+    );
+}
 
 fn refused(content: &str) -> (OpenError, String) {
     let fs = home();

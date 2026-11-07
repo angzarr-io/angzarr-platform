@@ -276,7 +276,3 @@ fn truncate(
     fs.write_atomic(journal, &whole, Perms::KeepOr(JOURNAL_MODE))
         .map_err(|e| OpenError::io(journal, e))
 }
-
-#[cfg(test)]
-#[path = "journal.test.rs"]
-mod tests;

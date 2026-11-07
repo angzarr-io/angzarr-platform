@@ -234,3 +234,71 @@ fn test_the_descriptor_holds_exactly_the_protos_fields() {
     assert_eq!(in_descriptor, seen);
     assert_eq!(file().message_type.len(), 16);
 }
+
+#[test]
+fn test_the_file_is_a_proto3_file_of_the_journals_package() {
+    let schema = Schema::new();
+    let pool = schema.entry().parent_pool().clone();
+    let file = pool
+        .get_file_by_name("store_jsonl/v1/journal.proto")
+        .expect("the file is in the pool");
+    assert_eq!(file.package_name(), PACKAGE);
+    assert_eq!(file.file_descriptor_proto().syntax(), "proto3");
+}
+
+#[test]
+fn test_every_field_says_its_label_and_its_json_name() {
+    let file = file();
+    for message in &file.message_type {
+        for field in &message.field {
+            let name = field.name();
+            let label = if matches!(
+                (message.name(), name),
+                ("Write", "positions" | "outbox" | "dead_letters")
+                    | ("Append", "pages")
+                    | ("OutboxCleared", "ids")
+                    | ("DeadLettersRemoved", "keys")
+            ) {
+                Label::Repeated
+            } else {
+                Label::Optional
+            };
+            assert_eq!(field.label, Some(label as i32), "{}.{name}", message.name());
+            assert_eq!(
+                field.json_name.as_deref(),
+                Some(json_name(name).as_str()),
+                "{}.{name}",
+                message.name()
+            );
+        }
+    }
+}
+
+#[test]
+fn test_the_oneofs_are_named() {
+    let file = file();
+    let oneofs = |message: &str| -> Vec<String> {
+        file.message_type
+            .iter()
+            .find(|m| m.name() == message)
+            .expect("the message")
+            .oneof_decl
+            .iter()
+            .map(|o| o.name().to_string())
+            .collect()
+    };
+    assert_eq!(oneofs("Entry"), ["op"]);
+    assert_eq!(oneofs("Place"), ["at"]);
+    assert_eq!(oneofs("Stream"), ["_edition"]);
+    assert_eq!(oneofs("OutboxEntry"), ["_edition"]);
+    assert_eq!(oneofs("Write"), ["_events"]);
+    assert!(oneofs("Purged").is_empty());
+}
+
+#[test]
+fn test_a_default_schema_is_the_schema() {
+    assert_eq!(
+        Schema::default().entry().full_name(),
+        "store_jsonl.v1.Entry"
+    );
+}
