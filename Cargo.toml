@@ -61,6 +61,12 @@ tokio = { version = "1", features = ["rt", "time"] }
 prost = "0.14"
 prost-types = "0.14"
 prost-reflect = "0.16.5"
+# The os crate's process tree kill (`os::process`): a child leading a process
+# group on unix (killpg), in a job object on Windows. watchexec's crate, std
+# frontend only (no tokio, no tracing, no kill-on-drop or session wrappers).
+# Pinned exactly, at 10.0.1 (2026-09-23). Apache-2.0 OR MIT. Pulls `nix` on
+# unix and `windows` on Windows.
+process-wrap = { version = "=10.0.1", default-features = false, features = ["std", "process-group"] }
 
 # Every crate opts in with `[lints] workspace = true`.
 [workspace.lints.clippy]

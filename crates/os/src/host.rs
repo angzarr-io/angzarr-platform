@@ -8,6 +8,8 @@ use std::io;
 use std::process::{Child, Command};
 use std::sync::Arc;
 
+use process_wrap::std::{ChildWrapper, CommandWrap};
+
 use crate::{LockKind, Os};
 
 #[cfg(unix)]
@@ -36,6 +38,19 @@ pub(crate) fn own_group(command: &mut Command) -> &mut Command {
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) fn ctrl_break(child: &Child) -> io::Result<()> {
     imp::ctrl_break(child)
+}
+
+/// Make `wrap`'s child lead a new process group (unix) or belong to a new
+/// job object (Windows).
+pub(crate) fn wrap_tree(wrap: &mut CommandWrap) {
+    imp::wrap_tree(wrap);
+}
+
+/// Ask `child`'s tree to stop, gracefully; whether the host has such a
+/// request and it was sent (a tree already gone is not an error: the kill
+/// that follows finds it so).
+pub(crate) fn request_stop(child: &dyn ChildWrapper) -> bool {
+    imp::request_stop(child)
 }
 
 /// Take `kind` of lock on `file` without waiting: fs4's flock on unix,

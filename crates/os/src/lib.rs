@@ -40,6 +40,7 @@
 
 mod flavor;
 mod host;
+pub mod process;
 mod top;
 
 use std::ffi::OsString;
