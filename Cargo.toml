@@ -24,13 +24,13 @@ store-jsonl = { path = "crates/store-jsonl" }
 # for the tests that hold each error's English to its expected text. A user
 # of these crates pins angzarr core at the same rev, so its graph holds one
 # angzarr-diagnostic.
-angzarr-diagnostic = { git = "https://github.com/angzarr-io/angzarr", rev = "3311a3ae4f42d70c498581ea738449534048dad5" }
-angzarr-presentation = { git = "https://github.com/angzarr-io/angzarr", rev = "3311a3ae4f42d70c498581ea738449534048dad5" }
+angzarr-diagnostic = { git = "https://github.com/angzarr-io/angzarr", rev = "35b29dea0757fbb47d7b08be1d4c2b79e8369481" }
+angzarr-presentation = { git = "https://github.com/angzarr-io/angzarr", rev = "35b29dea0757fbb47d7b08be1d4c2b79e8369481" }
 # The store crate's ports, wire types and codec: the same rev. angzarr-ports
 # is built with its `memory` feature (the in-memory store the journal is
 # replayed into) and, for the tests, `contract` (the conformance suite).
-angzarr-ports = { git = "https://github.com/angzarr-io/angzarr", rev = "3311a3ae4f42d70c498581ea738449534048dad5" }
-angzarr-proto-jsonl = { git = "https://github.com/angzarr-io/angzarr", rev = "3311a3ae4f42d70c498581ea738449534048dad5" }
+angzarr-ports = { git = "https://github.com/angzarr-io/angzarr", rev = "35b29dea0757fbb47d7b08be1d4c2b79e8369481" }
+angzarr-proto-jsonl = { git = "https://github.com/angzarr-io/angzarr", rev = "35b29dea0757fbb47d7b08be1d4c2b79e8369481" }
 
 # Third-party.
 # The catalogs' tests read each catalog's messages and variables.
