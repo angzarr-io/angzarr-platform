@@ -97,9 +97,26 @@ impl Os for Host {
     // Each console event is heard as the signal of its intent (the
     // `signal` module's docs).
     fn signals(&self, heard: &[Signal]) -> io::Result<Signals> {
-        let _ = heard;
-
-        Ok(Signals::from_source(|_| Poll::Pending))
+        let mut events: Vec<(Signal, Event)> = Vec::new();
+        if heard.contains(&Signal::Hangup) {
+            events.push((Signal::Hangup, Event::Close(signal::ctrl_close()?)));
+        }
+        if heard.contains(&Signal::Interrupt) {
+            events.push((Signal::Interrupt, Event::C(signal::ctrl_c()?)));
+            events.push((Signal::Interrupt, Event::Break(signal::ctrl_break()?)));
+        }
+        if heard.contains(&Signal::Terminate) {
+            events.push((Signal::Terminate, Event::Logoff(signal::ctrl_logoff()?)));
+            events.push((Signal::Terminate, Event::Shutdown(signal::ctrl_shutdown()?)));
+        }
+        Ok(Signals::from_source(move |cx| {
+            for (kind, event) in &mut events {
+                if event.poll_recv(cx).is_ready() {
+                    return Poll::Ready(*kind);
+                }
+            }
+            Poll::Pending
+        }))
     }
 }
 

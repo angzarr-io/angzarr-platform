@@ -35,19 +35,27 @@ impl Signal {
 
     /// Its number: POSIX leaves them to the system, but every unix target
     /// of this workspace (Linux, macOS, the BSDs) gives these.
-    pub fn number(self) -> u8 {
-        todo!("red")
+    pub const fn number(self) -> u8 {
+        match self {
+            Signal::Hangup => 1,
+            Signal::Interrupt => 2,
+            Signal::Terminate => 15,
+        }
     }
 
     /// The status a shell reports for a process this signal ended:
     /// 128 plus its [`number`](Self::number) (129, 130, 143).
-    pub fn exit_status(self) -> u8 {
-        todo!("red")
+    pub const fn exit_status(self) -> u8 {
+        128 + self.number()
     }
 
     /// Its unix name: `SIGHUP`, `SIGINT`, `SIGTERM`.
-    pub fn name(self) -> &'static str {
-        todo!("red")
+    pub const fn name(self) -> &'static str {
+        match self {
+            Signal::Hangup => "SIGHUP",
+            Signal::Interrupt => "SIGINT",
+            Signal::Terminate => "SIGTERM",
+        }
     }
 }
 
@@ -145,16 +153,22 @@ mod fake {
         /// hand, never the system: for a test of what a caller does with a
         /// signal. Signals arrive in the order raised. Test support.
         pub fn fake(heard: &[Signal]) -> (Raise, Signals) {
-            let _ = (
-                heard,
-                Pending::default(),
-                Arc::new(()),
-                Mutex::new(()),
-                PoisonError::<()>::new(()),
-                VecDeque::<()>::new(),
-            );
-            let _: Poll<()> = Poll::Pending;
-            todo!("red")
+            let pending = Arc::new(Mutex::new(Pending::default()));
+            let raise = Raise {
+                heard: heard.to_vec(),
+                pending: Arc::clone(&pending),
+            };
+            let signals = Signals::from_source(move |cx| {
+                let mut pending = pending.lock().unwrap_or_else(PoisonError::into_inner);
+                match pending.signals.pop_front() {
+                    Some(signal) => Poll::Ready(signal),
+                    None => {
+                        pending.waker = Some(cx.waker().clone());
+                        Poll::Pending
+                    }
+                }
+            });
+            (raise, signals)
         }
     }
 }

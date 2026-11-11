@@ -21,7 +21,8 @@ one belongs in that application's repository.
 - **os** is the one crate that names an operating system (`just lint-os`,
   scripts/os-cfg-check.sh, holds the others to that). It depends on `fs4`
   (advisory locks: flock on unix, LockFileEx on Windows), `tokio`'s
-  `signal` (the stop signal, as a future on the caller's runtime) and
+  `signal` (the stop signal and the signals heard by name, made on the
+  caller's runtime) and
   `typed-path` (every flavor's path logic on every host) and
   `process-wrap` (std frontend: a child as a process tree that one call
   kills, `os::process`; a process group via `nix` on unix, a job object

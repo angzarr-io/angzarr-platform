@@ -78,9 +78,20 @@ impl Os for Host {
     }
 
     fn signals(&self, heard: &[Signal]) -> io::Result<Signals> {
-        let _ = heard;
-        let _ = (kind_of, signal);
-        Ok(Signals::from_source(|_| Poll::Pending))
+        let mut streams = Vec::new();
+        for &kind in Signal::ALL.iter().filter(|kind| heard.contains(kind)) {
+            streams.push((kind, signal(kind_of(kind))?));
+        }
+        // In order, stopping at the first heard: each one passed has
+        // registered its waker, and a caller polls again after a signal.
+        Ok(Signals::from_source(move |cx| {
+            for (kind, stream) in &mut streams {
+                if stream.poll_recv(cx).is_ready() {
+                    return Poll::Ready(*kind);
+                }
+            }
+            Poll::Pending
+        }))
     }
 }
 
