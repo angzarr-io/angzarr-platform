@@ -22,7 +22,7 @@ use windows_sys::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_BREAK_E
 #[cfg(any(test, feature = "test-support"))]
 use windows_sys::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP;
 
-use crate::{Flavor, LockKind, Mode, Os, StopSignal};
+use crate::{Flavor, LockKind, Mode, Os, Signal, Signals, StopSignal};
 
 #[derive(Debug)]
 pub(crate) struct Host;
@@ -88,26 +88,40 @@ impl Os for Host {
     // Go's os.Interrupt and SIGTERM on Windows: Ctrl-C and Ctrl-Break, and
     // the console's close, the user's logoff and the system's shutdown.
     fn stop_signal(&self) -> io::Result<StopSignal> {
-        let mut c = signal::ctrl_c()?;
-        let mut brk = signal::ctrl_break()?;
-        let mut close = signal::ctrl_close()?;
-        let mut logoff = signal::ctrl_logoff()?;
-        let mut shutdown = signal::ctrl_shutdown()?;
-        Ok(Box::pin(std::future::poll_fn(move |cx| {
-            // Each is polled, so each registers its waker.
-            let stopped = [
-                c.poll_recv(cx).is_ready(),
-                brk.poll_recv(cx).is_ready(),
-                close.poll_recv(cx).is_ready(),
-                logoff.poll_recv(cx).is_ready(),
-                shutdown.poll_recv(cx).is_ready(),
-            ];
-            if stopped.contains(&true) {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })))
+        let mut signals = self.signals(&Signal::ALL)?;
+        Ok(Box::pin(async move {
+            signals.recv().await;
+        }))
+    }
+
+    // Each console event is heard as the signal of its intent (the
+    // `signal` module's docs).
+    fn signals(&self, heard: &[Signal]) -> io::Result<Signals> {
+        let _ = heard;
+
+        Ok(Signals::from_source(|_| Poll::Pending))
+    }
+}
+
+/// One console event's listener.
+enum Event {
+    C(signal::CtrlC),
+    Break(signal::CtrlBreak),
+    Close(signal::CtrlClose),
+    Logoff(signal::CtrlLogoff),
+    Shutdown(signal::CtrlShutdown),
+}
+
+impl Event {
+    #[cfg_attr(test, mutants::skip)]
+    fn poll_recv(&mut self, cx: &mut std::task::Context<'_>) -> Poll<Option<()>> {
+        match self {
+            Event::C(e) => e.poll_recv(cx),
+            Event::Break(e) => e.poll_recv(cx),
+            Event::Close(e) => e.poll_recv(cx),
+            Event::Logoff(e) => e.poll_recv(cx),
+            Event::Shutdown(e) => e.poll_recv(cx),
+        }
     }
 }
 

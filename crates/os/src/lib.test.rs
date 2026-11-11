@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
 
-use super::{host, Flavor, LockKind, Mode};
+use super::{host, Flavor, LockKind, Mode, Signal};
 
 fn dir() -> TempDir {
     TempDir::new().unwrap()
@@ -182,10 +182,11 @@ fn test_an_exclusive_lock_excludes_and_shared_locks_share() {
     );
 }
 
-/// The one test that registers for the stop signals, so no other test can
-/// see the signals it sends: made, it listens and has not resolved; a
+/// The one test that registers for signals, so no other test can see the
+/// signals it sends: a stop signal, made, listens and has not resolved; a
 /// SIGTERM, then (on a second one) a SIGINT, sent to this process resolves
-/// it.
+/// it. Then the signals of a set are each heard by name, in the order
+/// sent, and one outside the set is not heard.
 #[test]
 fn test_a_stop_signal_waits_for_a_signal_and_resolves_at_one() {
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -206,6 +207,26 @@ fn test_a_stop_signal_waits_for_a_signal_and_resolves_at_one() {
             runtime.block_on(async { tokio::time::timeout(Duration::from_secs(10), stop).await });
         assert!(resolved.is_ok(), "{signal} did not resolve the stop signal");
     }
+    let mut named = runtime
+        .block_on(async { os.signals(&[Signal::Hangup, Signal::Terminate]) })
+        .unwrap();
+    let mut hangup_only = runtime
+        .block_on(async { os.signals(&[Signal::Hangup]) })
+        .unwrap();
+    for (sent, heard) in [("-HUP", Signal::Hangup), ("-TERM", Signal::Terminate)] {
+        send(sent);
+        let got = runtime
+            .block_on(async { tokio::time::timeout(Duration::from_secs(10), named.recv()).await });
+        assert_eq!(got.ok(), Some(heard), "{sent} was not heard by name");
+    }
+    let own = runtime.block_on(async {
+        tokio::time::timeout(Duration::from_millis(200), hangup_only.recv()).await
+    });
+    assert_eq!(own.ok(), Some(Signal::Hangup), "the hangup was not heard");
+    let outside = runtime.block_on(async {
+        tokio::time::timeout(Duration::from_millis(200), hangup_only.recv()).await
+    });
+    assert!(outside.is_err(), "a SIGTERM was heard by a set without it");
 }
 
 /// Unix has no console events: a Ctrl-Break is refused as unsupported,

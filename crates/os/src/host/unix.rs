@@ -13,7 +13,7 @@ use std::task::Poll;
 use process_wrap::std::{ChildWrapper, CommandWrap, ProcessGroup};
 use tokio::signal::unix::{signal, SignalKind};
 
-use crate::{Flavor, LockKind, Mode, Os, StopSignal};
+use crate::{Flavor, LockKind, Mode, Os, Signal, Signals, StopSignal};
 
 #[derive(Debug)]
 pub(crate) struct Host;
@@ -71,17 +71,24 @@ impl Os for Host {
     }
 
     fn stop_signal(&self) -> io::Result<StopSignal> {
-        let mut interrupt = signal(SignalKind::interrupt())?;
-        let mut terminate = signal(SignalKind::terminate())?;
-        Ok(Box::pin(std::future::poll_fn(move |cx| {
-            let interrupted = interrupt.poll_recv(cx).is_ready();
-            let terminated = terminate.poll_recv(cx).is_ready();
-            if interrupted || terminated {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })))
+        let mut signals = self.signals(&[Signal::Interrupt, Signal::Terminate])?;
+        Ok(Box::pin(async move {
+            signals.recv().await;
+        }))
+    }
+
+    fn signals(&self, heard: &[Signal]) -> io::Result<Signals> {
+        let _ = heard;
+        let _ = (kind_of, signal);
+        Ok(Signals::from_source(|_| Poll::Pending))
+    }
+}
+
+fn kind_of(signal: Signal) -> SignalKind {
+    match signal {
+        Signal::Hangup => SignalKind::hangup(),
+        Signal::Interrupt => SignalKind::interrupt(),
+        Signal::Terminate => SignalKind::terminate(),
     }
 }
 

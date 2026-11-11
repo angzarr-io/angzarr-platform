@@ -11,7 +11,8 @@
 //!   is checked on Linux. Windows paths are parsed with typed-path, since
 //!   `std::path` parses only the compile target's.
 //! - [`Os`]: the SYSCALLS that differ (modes, directory links, file
-//!   identity, directory sync, advisory locks, the stop signal). One
+//!   identity, directory sync, advisory locks, the signals that ask the
+//!   process to stop, heard by name or as one stop). One
 //!   implementor per host, in a cfg-gated module, made by the one
 //!   constructor, [`host`]: at the composition root for the real
 //!   filesystem, which holds it (`file_system::Os::new`); the re-rooted
@@ -41,6 +42,7 @@
 mod flavor;
 mod host;
 pub mod process;
+mod signal;
 mod top;
 
 use std::ffi::OsString;
@@ -55,6 +57,9 @@ use std::process::{Child, Command};
 use std::sync::Arc;
 
 pub use flavor::{Flavor, DEFAULT_PATHEXT};
+#[cfg(any(test, feature = "test-support"))]
+pub use signal::Raise;
+pub use signal::{Signal, Signals};
 pub use top::Top;
 
 /// Permission bits (`0o777` at most). On unix they are the mode. On
@@ -160,8 +165,17 @@ pub trait Os: Send + Sync + fmt::Debug {
     /// Listening
     /// from the moment it is made, so a signal before its first poll is
     /// not lost to the default disposition. Made on the caller's tokio
-    /// runtime, whose drivers must be enabled.
+    /// runtime, whose drivers must be enabled. It is [`Os::signals`] of
+    /// those, whichever arrives.
     fn stop_signal(&self) -> io::Result<StopSignal>;
+
+    /// The signals of `heard`, each named as it arrives ([`Signal`] says
+    /// what each is on Windows), for a caller that must tell them apart:
+    /// stop on some, carry on through others, exit with the status of the
+    /// one that stopped it. Listening from the moment it is made, as
+    /// [`Os::stop_signal`] is; made on the caller's tokio runtime, whose
+    /// drivers must be enabled.
+    fn signals(&self, heard: &[Signal]) -> io::Result<Signals>;
 }
 
 /// The host's [`Os`]: the one constructor, and the one place that picks
