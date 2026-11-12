@@ -400,6 +400,7 @@ version = "0.1.0"
 dependencies = [
  "fs4",
  "junction",
+ "libc",
  "mutants",
  "process-wrap",
  "same-file",

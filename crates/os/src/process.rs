@@ -1,5 +1,7 @@
 //! A child started as a TREE the caller can kill: the child and everything
-//! it starts, however deep, in one call ([`Tree::kill_tree`]).
+//! it starts, however deep, in one call ([`Tree::kill_tree`]); or started
+//! DETACHED ([`spawn_detached`]), to outlive the caller, out of its
+//! session and group.
 //!
 //! A process group on unix (the child leads a new one; the kill is a
 //! `killpg`), a job object on Windows (the child is assigned to a new one;
@@ -32,7 +34,7 @@
 //!   caller ends a tree, then drops it.
 
 use std::io;
-use std::process::{ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus};
+use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus};
 use std::time::{Duration, Instant};
 
 use process_wrap::std::{ChildWrapper, CommandWrap};
@@ -60,6 +62,32 @@ pub fn spawn_tree(command: Command) -> io::Result<Tree> {
     Ok(Tree {
         child: wrap.spawn()?,
     })
+}
+
+/// Start `command` DETACHED: a process meant to outlive the caller, in
+/// none of its session, process group or console, so nothing that ends
+/// them ends it (a terminal's hangup or Ctrl-C, a kill of the caller's
+/// group).
+///
+/// - unix: the child calls `setsid` before the exec, so it leads a new
+///   session and a new process group, with no controlling terminal.
+/// - Windows: `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` (no console,
+///   no console events of the caller's), with `CREATE_BREAKAWAY_FROM_JOB`
+///   so it leaves a job the caller is in. A job that does not allow
+///   breakaway refuses that, and the child is then started without it,
+///   in the caller's job: a [`Tree`] of this crate is such a job (its kill
+///   reaches the child; its close does not, as it does not kill on close).
+///
+/// Its stdio is whatever `command` set; a detached process usually wants
+/// [`std::process::Stdio::null`] for all three, since what it inherits is
+/// the caller's (a terminal it no longer has, on unix; no console, on
+/// Windows). The [`Child`] is the caller's to wait for or drop: dropping
+/// it leaves the process running (on unix it is reaped by init once the
+/// caller has exited, a zombie until then if it exits first and is not
+/// waited for). A program that cannot be started is the `io::Error`
+/// `Command::spawn` gives.
+pub fn spawn_detached(command: Command) -> io::Result<Child> {
+    host::spawn_detached(command)
 }
 
 impl Tree {

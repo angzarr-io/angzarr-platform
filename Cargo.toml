@@ -45,9 +45,16 @@ tempfile = "3"
 # (2026-09-24), same-file at 1.0.6 (2020-01-11).
 junction = "=2.1.0"
 same-file = "=1.0.6"
-# The os crate's Windows console calls (a Ctrl-Break sent to a child's
-# process group, in tests). Pinned exactly, at 0.61.2 (2025-10-06).
+# The os crate's Windows calls: a Ctrl-Break sent to a child's process
+# group (in tests), the account's profile folder (`Os::user_home`) and a
+# detached spawn's creation flags. Pinned exactly, at 0.61.2 (2025-10-06).
 windows-sys = "=0.61.2"
+# The os crate's unix calls that std does not wrap: the account's home
+# directory from the account database (getpwuid_r, `Os::user_home`) and a
+# detached spawn's new session (setsid). Already in the graph (tokio, mio
+# and nix depend on it), so it adds no crate; any 0.2 has these calls.
+# MIT OR Apache-2.0.
+libc = "0.2"
 # The os crate's path logic for every flavor on every host: Windows paths
 # parsed on Linux, so their display and comparison keys are tested here.
 # Pinned exactly, at 0.12.3 (2026-02-11). MIT OR Apache-2.0; no

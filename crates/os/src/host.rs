@@ -4,7 +4,6 @@
 use std::ffi::OsString;
 use std::fs::File;
 use std::io;
-#[cfg(any(test, feature = "test-support"))]
 use std::process::{Child, Command};
 use std::sync::Arc;
 
@@ -19,6 +18,8 @@ mod windows;
 
 #[cfg(unix)]
 use unix as imp;
+#[cfg(all(test, unix))]
+pub(crate) use unix::{account_home, home_of};
 #[cfg(windows)]
 use windows as imp;
 
@@ -44,6 +45,12 @@ pub(crate) fn ctrl_break(child: &Child) -> io::Result<()> {
 /// job object (Windows).
 pub(crate) fn wrap_tree(wrap: &mut CommandWrap) {
     imp::wrap_tree(wrap);
+}
+
+/// Start `command` outside the spawner's session: a new session on unix
+/// (setsid), a detached process in a new process group on Windows.
+pub(crate) fn spawn_detached(command: Command) -> io::Result<Child> {
+    imp::spawn_detached(command)
 }
 
 /// Ask `child`'s tree to stop, gracefully; whether the host has such a

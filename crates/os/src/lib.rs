@@ -12,7 +12,8 @@
 //!   `std::path` parses only the compile target's.
 //! - [`Os`]: the SYSCALLS that differ (modes, directory links, file
 //!   identity, directory sync, advisory locks, the signals that ask the
-//!   process to stop, heard by name or as one stop). One
+//!   process to stop, heard by name or as one stop, the account's home
+//!   directory). One
 //!   implementor per host, in a cfg-gated module, made by the one
 //!   constructor, [`host`]: at the composition root for the real
 //!   filesystem, which holds it (`file_system::Os::new`); the re-rooted
@@ -176,6 +177,15 @@ pub trait Os: Send + Sync + fmt::Debug {
     /// [`Os::stop_signal`] is; made on the caller's tokio runtime, whose
     /// drivers must be enabled.
     fn signals(&self, heard: &[Signal]) -> io::Result<Signals>;
+
+    /// The home directory of the account the process runs as, as the
+    /// system keeps it, never a variable (`HOME`, `USERPROFILE`), so a
+    /// process whose `HOME` was moved still finds the account's: on unix
+    /// the account database's (`getpwuid_r` of the effective uid, its
+    /// `pw_dir`); on Windows the user's profile folder
+    /// (`SHGetKnownFolderPath(FOLDERID_Profile)`). `NotFound` when the
+    /// account has no entry or the entry no home.
+    fn user_home(&self) -> io::Result<PathBuf>;
 }
 
 /// The host's [`Os`]: the one constructor, and the one place that picks

@@ -275,3 +275,105 @@ fn test_a_fixture_is_absolute_on_the_host_and_spelled_by_its_flavor() {
         Some(super::host().flavor().from_top("/home/u").as_str())
     );
 }
+
+#[test]
+fn test_the_user_home_is_an_absolute_directory() {
+    let home = host().user_home().unwrap();
+    assert!(home.is_absolute(), "{home:?}");
+    assert!(home.is_dir(), "{home:?}");
+}
+
+/// The account database's word, never `HOME`'s: the test compares the
+/// answer with getpwuid's own (which reads no variable), and a `HOME`
+/// pointing elsewhere does not move it (`user_home_is_not_the_home_variable`).
+#[cfg(unix)]
+#[test]
+fn test_the_user_home_is_the_accounts_home_directory() {
+    use std::ffi::{CStr, OsStr};
+    use std::os::unix::ffi::OsStrExt;
+    // SAFETY: getpwuid's entry is read at once, on this thread, before any
+    // other call could overwrite it.
+    let expected = unsafe {
+        let entry = libc::getpwuid(libc::geteuid());
+        assert!(!entry.is_null(), "the test's account has an entry");
+        Path::new(OsStr::from_bytes(
+            CStr::from_ptr((*entry).pw_dir).to_bytes(),
+        ))
+        .to_path_buf()
+    };
+    assert_eq!(host().user_home().unwrap(), expected);
+}
+
+/// Every reading of the entry, however small the first buffer: one too
+/// small for it is doubled until the entry fits.
+#[cfg(unix)]
+#[test]
+fn test_the_user_home_is_read_whatever_the_first_buffer() {
+    let expected = host().user_home().unwrap();
+    for start in [1, 2, 3, 17, 64] {
+        let home = super::host::account_home(start, 1 << 20).unwrap();
+        assert_eq!(home, expected, "from {start}");
+    }
+}
+
+/// The buffer grows by doubling, and not past its last size: at the
+/// smallest size the entry fits, one byte less and no room to grow is the
+/// `ERANGE`, and half of it with room for one doubling is enough.
+#[cfg(unix)]
+#[test]
+fn test_the_users_entry_buffer_doubles_up_to_its_last_size() {
+    let fits = |size: usize| super::host::account_home(size, size).is_ok();
+    let least = (1..4096).find(|&size| fits(size)).expect("an entry fits");
+    assert!(least > 4, "an entry is longer than a few bytes: {least}");
+    let short = super::host::account_home(least - 1, least - 1).unwrap_err();
+    assert_eq!(short.raw_os_error(), Some(libc::ERANGE));
+    let half = least.div_ceil(2);
+    assert!(super::host::account_home(half, half + 1).is_ok());
+}
+
+/// What an entry names as its home: none, a null or an empty one is
+/// `NotFound`; a path is that path, byte for byte.
+#[cfg(unix)]
+#[test]
+fn test_an_entry_with_no_home_is_not_found() {
+    use super::host::home_of;
+    // SAFETY: each pointer is null or a NUL-terminated literal.
+    unsafe {
+        for dir in [None, Some(std::ptr::null()), Some(c"".as_ptr())] {
+            let err = home_of(dir).unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::NotFound, "{dir:?}");
+        }
+        let home = home_of(Some(c"/home/u\xff".as_ptr())).unwrap();
+        assert_eq!(home, crate::not_unicode("/home/u"));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn test_the_user_home_is_not_the_home_variable() {
+    // In a child, so this process's environment is never changed: the
+    // test binary runs this one test with HOME pointing elsewhere, and the
+    // test there asserts what it printed is the account's.
+    if std::env::var_os("ANGZARR_OS_USER_HOME_CHILD").is_some() {
+        println!("user_home={}", host().user_home().unwrap().display());
+        return;
+    }
+    let expected = host().user_home().unwrap();
+    let out = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "tests::test_the_user_home_is_not_the_home_variable",
+            "--nocapture",
+        ])
+        .env("ANGZARR_OS_USER_HOME_CHILD", "1")
+        .env("HOME", "/nonexistent/angzarr-os-home")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let printed = String::from_utf8(out.stdout).unwrap();
+    let line = printed
+        .lines()
+        .find_map(|l| l.strip_prefix("user_home="))
+        .expect("the child printed its answer");
+    assert_eq!(Path::new(line), expected);
+}
