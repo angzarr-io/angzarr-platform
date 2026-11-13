@@ -703,12 +703,10 @@ _scratch-tree source +recipe:
     relative='{{staged_tree}}'
     tree=$(realpath -m "$top/${relative//\{name\}/$(basename "$top")}")
     scratch=$(mktemp -d)
-    remove_tree() {
-        if [ -e "$tree" ]; then
-            "${scrub[@]}" git -C "$top" worktree remove --force "$tree" >/dev/null 2>&1 || rm -rf "$tree"
-        fi
-        "${scrub[@]}" git -C "$top" worktree prune
-    }
+    # Only this tree and its own record: never a repository-wide prune, which
+    # in a container that mounts only this checkout deletes every other
+    # worktree's record (gates/drop-worktree.sh).
+    remove_tree() { "${scrub[@]}" "$top/gates/drop-worktree.sh" "$top" "$tree"; }
     trap 'remove_tree; rm -rf "$scratch"' EXIT
     remove_tree
     base=HEAD
