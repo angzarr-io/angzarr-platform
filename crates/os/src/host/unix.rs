@@ -225,3 +225,7 @@ pub(crate) fn wrap_tree(wrap: &mut CommandWrap) {
 pub(crate) fn request_stop(child: &dyn ChildWrapper) -> bool {
     child.signal(SIGTERM).is_ok()
 }
+
+pub(crate) fn request_stop_pid(_pid: u32) -> bool {
+    false
+}

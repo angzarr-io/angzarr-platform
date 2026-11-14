@@ -39,6 +39,17 @@ fn test_a_detached_child_runs_and_its_status_is_read() {
     assert_eq!(child.wait().unwrap().code(), Some(3));
 }
 
+/// Windows has no ask: nothing is sent and the call says so.
+#[cfg(windows)]
+#[test]
+fn test_request_stop_sends_nothing_on_windows() {
+    let mut command = Command::new("cmd");
+    command.args(["/C", "exit 0"]);
+    let mut child = command.spawn().unwrap();
+    assert!(!super::request_stop(&child));
+    assert!(child.wait().unwrap().success());
+}
+
 #[cfg(unix)]
 mod unix {
     use std::io::{BufRead, BufReader, Read};
@@ -47,7 +58,7 @@ mod unix {
     use std::sync::mpsc;
     use std::time::Duration;
 
-    use crate::process::{spawn_detached, spawn_tree, Tree};
+    use crate::process::{request_stop, spawn_detached, spawn_tree, Tree};
 
     const SIGKILL: i32 = 9;
 
@@ -180,6 +191,49 @@ mod unix {
             assert_eq!(status.signal(), Some(SIGKILL));
             assert!(to_eof(out).is_empty());
         });
+    }
+
+    #[test]
+    fn test_request_stop_asks_one_child_which_stops_on_its_own() {
+        // Ready is printed after the trap is set, so the ask finds it set.
+        let mut command = Command::new("sh");
+        command
+            .arg("-c")
+            .arg("trap 'exit 7' TERM; echo ready; i=0; while [ $i -lt 30 ]; do sleep 1; i=$((i+1)); done")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped());
+        let mut child = command.spawn().unwrap();
+        let mut out = BufReader::new(child.stdout.take().unwrap());
+        let mut ready = String::new();
+        out.read_line(&mut ready).unwrap();
+        assert_eq!(ready, "ready\n");
+
+        assert!(request_stop(&child));
+        promptly(move || {
+            // Its own exit (the trap's 7), not a kill: nothing else was sent.
+            let status = child.wait().unwrap();
+            assert_eq!(status.code(), Some(7));
+        });
+    }
+
+    #[test]
+    fn test_request_stop_asks_the_child_alone_not_its_group() {
+        // The child is in OUR group (a plain spawn); a SIGTERM to the
+        // group would reach this test process too, and end it.
+        let mut command = Command::new("sh");
+        command
+            .arg("-c")
+            .arg("trap 'exit 7' TERM; echo ready; i=0; while [ $i -lt 30 ]; do sleep 1; i=$((i+1)); done")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped());
+        let mut child = command.spawn().unwrap();
+        let mut out = BufReader::new(child.stdout.take().unwrap());
+        let mut ready = String::new();
+        out.read_line(&mut ready).unwrap();
+        assert_eq!(session_and_group(child.id()).1, session_and_group(0).1);
+
+        assert!(request_stop(&child));
+        promptly(move || assert_eq!(child.wait().unwrap().code(), Some(7)));
     }
 
     #[test]

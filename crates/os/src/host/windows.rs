@@ -236,3 +236,9 @@ pub(crate) fn wrap_tree(wrap: &mut CommandWrap) {
 pub(crate) fn request_stop(_child: &dyn ChildWrapper) -> bool {
     false
 }
+
+// Windows has no graceful stop of one process: the caller's kill is the stop.
+#[cfg_attr(test, mutants::skip)]
+pub(crate) fn request_stop_pid(_pid: u32) -> bool {
+    false
+}

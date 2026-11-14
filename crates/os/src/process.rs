@@ -90,6 +90,23 @@ pub fn spawn_detached(command: Command) -> io::Result<Child> {
     host::spawn_detached(command)
 }
 
+/// Ask `child`, ONE process, to stop, and say whether the ask was sent.
+///
+/// - unix: SIGTERM to the child's pid alone, never its process group, so
+///   a child sharing the caller's group (a terminal's program) is asked
+///   without the caller being asked too. `false` if the signal could not
+///   be sent (the process has gone and been reaped).
+/// - Windows: there is no ask; nothing is sent, and the answer is `false`.
+///
+/// A caller that gets `false`, or whose child does not stop in its own
+/// time, ends it with [`Child::kill`]. The ask is by pid: a child already
+/// waited for has given up its pid, which the system may reuse, so a
+/// caller asks only a child it has not yet reaped (an exited child not
+/// yet waited for keeps its pid as a zombie, and the ask is harmless).
+pub fn request_stop(child: &Child) -> bool {
+    host::request_stop_pid(child.id())
+}
+
 impl Tree {
     /// The child's process id (the tree's leader).
     pub fn id(&self) -> u32 {
