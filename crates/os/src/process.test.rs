@@ -237,6 +237,12 @@ mod unix {
     }
 
     #[test]
+    fn test_request_stop_never_signals_a_number_that_is_no_pid() {
+        // Cast to pid_t it would be -1: every process the caller may signal.
+        assert!(!crate::host::request_stop_pid(u32::MAX));
+    }
+
+    #[test]
     fn test_the_pipes_the_command_made_are_taken_once() {
         let mut command = Command::new("sh");
         command

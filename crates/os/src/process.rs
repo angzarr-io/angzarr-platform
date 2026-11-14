@@ -1,7 +1,8 @@
 //! A child started as a TREE the caller can kill: the child and everything
 //! it starts, however deep, in one call ([`Tree::kill_tree`]); or started
 //! DETACHED ([`spawn_detached`]), to outlive the caller, out of its
-//! session and group.
+//! session and group; and ONE child asked to stop ([`request_stop`]),
+//! whatever group it is in.
 //!
 //! A process group on unix (the child leads a new one; the kill is a
 //! `killpg`), a job object on Windows (the child is assigned to a new one;

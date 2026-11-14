@@ -226,6 +226,13 @@ pub(crate) fn request_stop(child: &dyn ChildWrapper) -> bool {
     child.signal(SIGTERM).is_ok()
 }
 
-pub(crate) fn request_stop_pid(_pid: u32) -> bool {
-    false
+/// SIGTERM to the one process `pid` (`kill`, never `killpg`). A number
+/// over `pid_t`'s range is no process id and is never signalled (cast, it
+/// would be negative: a whole group). A child's id is never 0.
+pub(crate) fn request_stop_pid(pid: u32) -> bool {
+    match libc::pid_t::try_from(pid) {
+        // SAFETY: a plain call taking a pid and a signal number.
+        Ok(pid) => unsafe { libc::kill(pid, SIGTERM) == 0 },
+        Err(_) => false,
+    }
 }
