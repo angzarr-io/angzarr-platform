@@ -211,10 +211,20 @@ fn descriptor_limit() -> libc::c_int {
 }
 
 /// Make every descriptor above stderr close-on-exec, in a forked child
-/// before its exec: `close_range` on Linux, else each one below `limit`
-/// (one not open is an error it ignores). Async-signal-safe: system calls
-/// alone, nothing allocated.
+/// before its exec: `close_range` on Linux, else [`cloexec_below`] `limit`.
+/// Async-signal-safe: system calls alone, nothing allocated.
 fn cloexec_above_stderr(limit: libc::c_int) {
+    if !close_range_cloexec() {
+        cloexec_below(limit);
+    }
+}
+
+/// Whether `close_range` made every descriptor above stderr close-on-exec:
+/// Linux 5.11 or later; never elsewhere.
+// A mutant that says it failed only sends the caller to `cloexec_below`,
+// which does the same: it is equivalent.
+#[cfg_attr(test, mutants::skip)]
+fn close_range_cloexec() -> bool {
     #[cfg(target_os = "linux")]
     {
         // SAFETY: a plain system call taking integers.
@@ -226,10 +236,17 @@ fn cloexec_above_stderr(limit: libc::c_int) {
                 libc::CLOSE_RANGE_CLOEXEC,
             )
         };
-        if all == 0 {
-            return;
-        }
+        all == 0
     }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
+}
+
+/// Make each descriptor from 3 up to `limit` (not included) close-on-exec;
+/// one not open is an error it ignores.
+fn cloexec_below(limit: libc::c_int) {
     for fd in 3..limit {
         // SAFETY: a plain call on a descriptor number; one not open fails.
         unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) };
@@ -340,3 +357,7 @@ pub(crate) fn request_stop_pid(pid: u32) -> bool {
         Err(_) => false,
     }
 }
+
+#[cfg(test)]
+#[path = "unix.test.rs"]
+mod tests;

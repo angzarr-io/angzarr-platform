@@ -356,6 +356,18 @@ mod unix {
         promptly(move || assert!(child.wait().unwrap().success()));
     }
 
+    /// The id is the process's own pid, as it reports it.
+    #[test]
+    fn test_the_id_is_the_processs_own_pid() {
+        let mut detach = Detach::new("sh");
+        detach.args(["-c", "echo $$"]).stdout(Stream::Piped);
+        let mut child = spawn_detached(detach).unwrap();
+        let out = child.take_stdout().unwrap();
+        let shown = promptly(move || read_all(out));
+        assert_eq!(shown.trim_end(), child.id().to_string());
+        assert!(child.wait().unwrap().success());
+    }
+
     #[test]
     fn test_a_detached_child_has_no_controlling_terminal() {
         // A new session has none: opening /dev/tty fails, whether or not
