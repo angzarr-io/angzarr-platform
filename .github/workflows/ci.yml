@@ -7,6 +7,10 @@
 # dependency pinned by commit (Cargo.toml). The gates are in the repository
 # (gates/).
 #
+# angzarr core's angzarr-proto runs protoc in its build script: protoc
+# 3.21.12, by ctxloom/ci's setup-protoc (the release zip checked against
+# its pinned sha256), on every runner.
+#
 # Every action is pinned to a commit, its release in the comment; every tool
 # to a version.
 
@@ -37,6 +41,7 @@ jobs:
         run: |
           rustup show active-toolchain || rustup toolchain install
           rustup target add x86_64-pc-windows-gnu
+      - uses: ctxloom/ci/.github/actions/setup-protoc@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12, protoc 3.21.12 by checksum
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: ${{ env.TOOLS }}
@@ -62,6 +67,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Toolchain (rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
+      - uses: ctxloom/ci/.github/actions/setup-protoc@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12, protoc 3.21.12 by checksum
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: ${{ env.TOOLS }}

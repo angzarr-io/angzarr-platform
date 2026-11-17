@@ -6,7 +6,10 @@
 # `check-windows`). cargo-deny's duplicate-version warnings stay in
 # target/logs/lint-deps.log, not silenced in deny.toml.
 
-set windows-shell := ["bash", "-cu"]
+# On Windows `sh` is Git Bash's, found on PATH. Not `bash`: CreateProcess
+# looks in System32 before PATH, where `bash.exe` is WSL's launcher, which
+# fails with no distribution installed (a hosted runner's case).
+set windows-shell := ["sh", "-cu"]
 
 TOP := `git rev-parse --show-toplevel`
 
