@@ -39,6 +39,122 @@ fn test_a_detached_child_runs_and_its_status_is_read() {
     assert_eq!(child.wait().unwrap().code(), Some(3));
 }
 
+/// What makes [`test_detached_middle`] the middle process of
+/// [`test_a_detached_child_holds_none_of_the_callers_standard_handles`]
+/// rather than a no-op.
+const MIDDLE: &str = "ANGZARR_OS_DETACHED_MIDDLE";
+
+/// How long the caller's pipes may stay open once the middle process has
+/// exited before a detached child is said to hold them: far longer than a
+/// process takes to exit, far shorter than the child's minute of sleep.
+const HELD: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// A child that sleeps for a minute, writing nothing.
+fn sleeper() -> Command {
+    if cfg!(windows) {
+        let mut ping = Command::new("ping");
+        ping.args(["-n", "61", "127.0.0.1"]);
+        ping
+    } else {
+        let mut sleep = Command::new("sleep");
+        sleep.arg("60");
+        sleep
+    }
+}
+
+/// Run by the test below alone, as the middle process (the caller of
+/// [`spawn_detached`]), whose standard handles are that test's pipes: it
+/// starts a detached sleeper with null stdio, prints its pid, and exits.
+#[test]
+#[ignore = "the middle process of a test, which runs it"]
+// The sleeper is left running on purpose, to outlive this process; the
+// test that runs this kills it.
+#[allow(clippy::zombie_processes)]
+fn test_detached_middle() {
+    if std::env::var_os(MIDDLE).is_none() {
+        return;
+    }
+    let mut command = sleeper();
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let child = spawn_detached(command).unwrap();
+    println!("detached-pid={}", child.id());
+}
+
+/// What a reader of one of the middle process's pipes saw.
+enum Seen {
+    Line(String),
+    Eof,
+}
+
+/// A detached child holds none of its caller's standard handles: once the
+/// caller has exited, a reader of the caller's stdout and stderr sees their
+/// EOF at once, though the child lives on (std on Windows creates every
+/// child inheriting every inheritable handle, the caller's own pipes
+/// among them).
+#[test]
+fn test_a_detached_child_holds_none_of_the_callers_standard_handles() {
+    use std::io::{BufRead, BufReader, Read};
+    use std::process::Stdio;
+    use std::sync::mpsc;
+
+    let name = module_path!().split_once("::").unwrap().1;
+    let mut middle = Command::new(std::env::current_exe().unwrap());
+    middle
+        .args(["--ignored", "--exact", "--nocapture", "--test-threads=1"])
+        .arg(format!("{name}::test_detached_middle"))
+        .env(MIDDLE, "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut middle = middle.spawn().unwrap();
+    let (tx, rx) = mpsc::channel();
+    let read = |pipe: Box<dyn Read + Send>, tx: mpsc::Sender<Seen>| {
+        std::thread::spawn(move || {
+            for line in BufReader::new(pipe).lines().map_while(Result::ok) {
+                let _ = tx.send(Seen::Line(line));
+            }
+            let _ = tx.send(Seen::Eof);
+        })
+    };
+    read(Box::new(middle.stdout.take().unwrap()), tx.clone());
+    read(Box::new(middle.stderr.take().unwrap()), tx);
+    assert!(middle.wait().unwrap().success(), "the middle process ran");
+
+    let mut pid = None;
+    let mut eofs = 0;
+    while eofs < 2 {
+        match rx.recv_timeout(HELD) {
+            Ok(Seen::Line(line)) => {
+                // libtest may print the test's name on the same line.
+                if let Some((_, id)) = line.split_once("detached-pid=") {
+                    pid = Some(id.trim().to_owned());
+                }
+            }
+            Ok(Seen::Eof) => eofs += 1,
+            Err(_) => break,
+        }
+    }
+    let pid = pid.expect("the middle process printed the detached pid");
+    let mut kill = if cfg!(windows) {
+        let mut taskkill = Command::new("taskkill");
+        taskkill.args(["/F", "/PID", &pid]);
+        taskkill
+    } else {
+        let mut kill = Command::new("kill");
+        kill.args(["-9", &pid]);
+        kill
+    };
+    let _ = kill.stdout(Stdio::null()).stderr(Stdio::null()).status();
+    assert_eq!(
+        eofs, 2,
+        "the caller's stdout and stderr were still open {HELD:?} after it exited: \
+         the detached child holds them"
+    );
+}
+
 /// Windows has no ask: nothing is sent and the call says so.
 #[cfg(windows)]
 #[test]
