@@ -40,7 +40,7 @@ fn test_a_detached_child_runs_and_its_status_is_read() {
 }
 
 /// What makes [`test_detached_middle`] the middle process of
-/// [`test_a_detached_child_holds_none_of_the_callers_standard_handles`]
+/// [`test_a_detached_child_holds_no_handle_of_its_callers_but_its_stdio`]
 /// rather than a no-op.
 const MIDDLE: &str = "ANGZARR_OS_DETACHED_MIDDLE";
 
@@ -63,8 +63,9 @@ fn sleeper() -> Command {
 }
 
 /// Run by the test below alone, as the middle process (the caller of
-/// [`spawn_detached`]), whose standard handles are that test's pipes: it
-/// starts a detached sleeper with null stdio, prints its pid, and exits.
+/// [`spawn_detached`]), whose standard handles are that test's pipes and
+/// which holds, unnamed, an inheritable pipe of that test's: it starts a
+/// detached sleeper with null stdio, prints its pid, and exits.
 #[test]
 #[ignore = "the middle process of a test, which runs it"]
 // The sleeper is left running on purpose, to outlive this process; the
@@ -83,23 +84,53 @@ fn test_detached_middle() {
     println!("detached-pid={}", child.id());
 }
 
+/// `writer` made inheritable, so a child this process starts holds it
+/// without being given it as any stdio: the unnamed handle a process gets
+/// from its parent.
+fn make_inheritable(writer: &std::io::PipeWriter) {
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
+        // SAFETY: a plain call on a descriptor `writer` owns.
+        let cleared = unsafe { libc::fcntl(writer.as_raw_fd(), libc::F_SETFD, 0) };
+        assert_eq!(cleared, 0, "the pipe is made inheritable");
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Foundation::{SetHandleInformation, HANDLE_FLAG_INHERIT};
+        // SAFETY: a plain call on a handle `writer` owns.
+        let set = unsafe {
+            SetHandleInformation(
+                writer.as_raw_handle(),
+                HANDLE_FLAG_INHERIT,
+                HANDLE_FLAG_INHERIT,
+            )
+        };
+        assert_ne!(set, 0, "the pipe is made inheritable");
+    }
+}
+
 /// What a reader of one of the middle process's pipes saw.
 enum Seen {
     Line(String),
-    Eof,
+    Eof(&'static str),
 }
 
-/// A detached child holds none of its caller's standard handles: once the
-/// caller has exited, a reader of the caller's stdout and stderr sees their
-/// EOF at once, though the child lives on (std on Windows creates every
-/// child inheriting every inheritable handle, the caller's own pipes
-/// among them).
+/// A detached child holds no handle of its caller's but the stdio it is
+/// given: once the caller has exited, a reader of the caller's stdout and
+/// stderr, and of a pipe the caller inherited and never named, sees each
+/// one's EOF at once, though the child lives on. (std on Windows creates
+/// every child inheriting every inheritable handle of its caller's; a unix
+/// descriptor without close-on-exec crosses every exec.)
 #[test]
-fn test_a_detached_child_holds_none_of_the_callers_standard_handles() {
+fn test_a_detached_child_holds_no_handle_of_its_callers_but_its_stdio() {
     use std::io::{BufRead, BufReader, Read};
     use std::process::Stdio;
     use std::sync::mpsc;
 
+    let (unnamed, writer) = std::io::pipe().unwrap();
+    make_inheritable(&writer);
     let name = module_path!().split_once("::").unwrap().1;
     let mut middle = Command::new(std::env::current_exe().unwrap());
     middle
@@ -110,22 +141,33 @@ fn test_a_detached_child_holds_none_of_the_callers_standard_handles() {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut middle = middle.spawn().unwrap();
+    // The middle process holds its own copy; this one would keep it open.
+    drop(writer);
     let (tx, rx) = mpsc::channel();
-    let read = |pipe: Box<dyn Read + Send>, tx: mpsc::Sender<Seen>| {
+    let read = |what: &'static str, pipe: Box<dyn Read + Send>, tx: mpsc::Sender<Seen>| {
         std::thread::spawn(move || {
             for line in BufReader::new(pipe).lines().map_while(Result::ok) {
                 let _ = tx.send(Seen::Line(line));
             }
-            let _ = tx.send(Seen::Eof);
+            let _ = tx.send(Seen::Eof(what));
         })
     };
-    read(Box::new(middle.stdout.take().unwrap()), tx.clone());
-    read(Box::new(middle.stderr.take().unwrap()), tx);
+    read(
+        "stdout",
+        Box::new(middle.stdout.take().unwrap()),
+        tx.clone(),
+    );
+    read(
+        "stderr",
+        Box::new(middle.stderr.take().unwrap()),
+        tx.clone(),
+    );
+    read("the unnamed pipe", Box::new(unnamed), tx);
     assert!(middle.wait().unwrap().success(), "the middle process ran");
 
     let mut pid = None;
-    let mut eofs = 0;
-    while eofs < 2 {
+    let mut open = vec!["stdout", "stderr", "the unnamed pipe"];
+    while !open.is_empty() {
         match rx.recv_timeout(HELD) {
             Ok(Seen::Line(line)) => {
                 // libtest may print the test's name on the same line.
@@ -133,7 +175,7 @@ fn test_a_detached_child_holds_none_of_the_callers_standard_handles() {
                     pid = Some(id.trim().to_owned());
                 }
             }
-            Ok(Seen::Eof) => eofs += 1,
+            Ok(Seen::Eof(what)) => open.retain(|o| *o != what),
             Err(_) => break,
         }
     }
@@ -148,9 +190,9 @@ fn test_a_detached_child_holds_none_of_the_callers_standard_handles() {
         kill
     };
     let _ = kill.stdout(Stdio::null()).stderr(Stdio::null()).status();
-    assert_eq!(
-        eofs, 2,
-        "the caller's stdout and stderr were still open {HELD:?} after it exited: \
+    assert!(
+        open.is_empty(),
+        "{open:?} of the caller's still open {HELD:?} after it exited: \
          the detached child holds them"
     );
 }
