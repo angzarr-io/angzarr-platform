@@ -213,6 +213,9 @@ fn descriptor_limit() -> libc::c_int {
 /// Make every descriptor above stderr close-on-exec, in a forked child
 /// before its exec: `close_range` on Linux, else [`cloexec_below`] `limit`.
 /// Async-signal-safe: system calls alone, nothing allocated.
+// On Linux, where mutation runs, close_range succeeds, so a mutant that
+// also runs the loop, or skips it, changes nothing: it cannot be killed.
+#[cfg_attr(test, mutants::skip)]
 fn cloexec_above_stderr(limit: libc::c_int) {
     if !close_range_cloexec() {
         cloexec_below(limit);
