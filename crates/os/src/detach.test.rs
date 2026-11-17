@@ -309,6 +309,11 @@ fn test_a_detached_child_holds_no_handle_of_its_callers_but_its_stdio() {
         }
     }
     let pid = pid.expect("the middle process printed the detached pid");
+    // Never 0 or 1 to a kill: `kill -9 0` is this whole process group.
+    assert!(
+        pid.parse::<u32>().is_ok_and(|p| p > 1),
+        "a detached pid, not {pid}"
+    );
     let mut kill = if cfg!(windows) {
         let mut taskkill = Command::new("taskkill");
         taskkill.args(["/F", "/PID", &pid]);
