@@ -2,18 +2,28 @@
 //! can run. The `shared_handles*` sections are not here, and are not run:
 //! this store is single-process by construction (the crate's documentation).
 
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use file_system::{Fs, Rooted};
+use os::{host, Flavor};
 
 use crate::{Durability, JsonlStore, Options};
+
+/// The journal's path, as the host spells an absolute path.
+fn journal() -> PathBuf {
+    PathBuf::from(if host().flavor() == Flavor::Windows {
+        r"C:\data\store.jsonl"
+    } else {
+        "/data/store.jsonl"
+    })
+}
 
 /// A new, empty store over a journal of its own, in a temporary filesystem
 /// the store keeps alive.
 fn fresh() -> JsonlStore {
     let fs: Arc<dyn Fs> = Arc::new(Rooted::temp().expect("a temporary filesystem"));
-    JsonlStore::open(fs, Path::new("/data/store.jsonl"))
+    JsonlStore::open(fs, &journal())
         .expect("a new journal opens")
         .store
 }
@@ -24,7 +34,7 @@ fn fresh_unsynced() -> JsonlStore {
     let options = Options {
         durability: Durability::Unsynced,
     };
-    JsonlStore::open_with(fs, Path::new("/data/store.jsonl"), options)
+    JsonlStore::open_with(fs, &journal(), options)
         .expect("a new journal opens")
         .store
 }

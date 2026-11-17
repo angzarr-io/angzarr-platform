@@ -5,8 +5,8 @@
 
 use std::fmt::Write as _;
 use std::io;
-use std::path::Path;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
 
 use angzarr_ports::angzarr_proto::v1::Cover;
 use angzarr_ports::contract::{
@@ -19,16 +19,31 @@ use angzarr_ports::{
     Watch, Write,
 };
 use file_system::{Fs, Perms, Rooted};
-use os::Mode;
+use os::{host, Flavor, Mode};
 
 use super::{Durability, JsonlStore, Opened, Options, Sink};
 use crate::{Failure, OpenError};
 
-const JOURNAL: &str = "/data/store.jsonl";
 const HEADER: &str = "{\"header\":{\"format\":1}}\n";
 
+/// `unix`, an absolute unix path, as the host spells it: on Windows, on
+/// drive C: with its separators.
+fn at(unix: &str) -> PathBuf {
+    if host().flavor() == Flavor::Windows {
+        PathBuf::from(format!("C:{}", unix.replace('/', "\\")))
+    } else {
+        PathBuf::from(unix)
+    }
+}
+
 fn journal() -> &'static Path {
-    Path::new(JOURNAL)
+    static JOURNAL: OnceLock<PathBuf> = OnceLock::new();
+    JOURNAL.get_or_init(|| at("/data/store.jsonl"))
+}
+
+/// The journal's path as an error names it.
+fn journal_text() -> String {
+    journal().display().to_string()
 }
 
 fn home() -> Arc<dyn Fs> {
@@ -63,7 +78,7 @@ fn lines(fs: &Arc<dyn Fs>) -> usize {
 }
 
 fn put_journal(fs: &Arc<dyn Fs>, content: &str) {
-    fs.create_dir_all(Path::new("/data"), Mode::DIR).unwrap();
+    fs.create_dir_all(&at("/data"), Mode::DIR).unwrap();
     fs.write_atomic(
         journal(),
         content.as_bytes(),
@@ -567,7 +582,7 @@ fn test_a_second_open_is_refused_while_the_first_lives_and_allowed_after() {
     assert_eq!(
         refused,
         OpenError::InUse {
-            path: JOURNAL.to_string()
+            path: journal_text()
         }
     );
     // A clone keeps the journal held.
@@ -585,8 +600,8 @@ fn test_a_second_open_is_refused_while_the_first_lives_and_allowed_after() {
 fn test_two_journals_are_two_stores() {
     let fs = home();
     let a = open(&fs);
-    let other = JsonlStore::open(Arc::clone(&fs), Path::new("/data/other.jsonl")).unwrap();
-    assert_eq!(other.store.journal(), Path::new("/data/other.jsonl"));
+    let other = JsonlStore::open(Arc::clone(&fs), &at("/data/other.jsonl")).unwrap();
+    assert_eq!(other.store.journal(), at("/data/other.jsonl"));
     drop((a, other));
 }
 
@@ -688,7 +703,7 @@ fn test_a_store_debugs_as_its_journal() {
     let store = open(&fs).store;
     let shown = format!("{store:?}");
     assert!(
-        shown.contains("JsonlStore") && shown.contains(JOURNAL),
+        shown.contains("JsonlStore") && shown.contains(&format!("{:?}", journal())),
         "{shown}"
     );
 }
@@ -702,7 +717,7 @@ fn test_a_journal_that_cannot_be_read_is_an_io_error() {
     fs.create_dir_all(journal(), Mode::DIR).unwrap();
     let err = JsonlStore::open(Arc::clone(&fs), journal()).unwrap_err();
     assert!(
-        matches!(&err, OpenError::Io { path, .. } if path == JOURNAL),
+        matches!(&err, OpenError::Io { path, .. } if *path == journal_text()),
         "{err:?}"
     );
 }
@@ -711,11 +726,11 @@ fn test_a_journal_that_cannot_be_read_is_an_io_error() {
 fn test_a_lock_that_cannot_be_taken_is_a_lock_error() {
     let fs = home();
     // A directory where the lock file should be.
-    fs.create_dir_all(Path::new("/data/store.jsonl.lock"), Mode::DIR)
+    fs.create_dir_all(&at("/data/store.jsonl.lock"), Mode::DIR)
         .unwrap();
     let err = JsonlStore::open(Arc::clone(&fs), journal()).unwrap_err();
     assert!(
-        matches!(&err, OpenError::Lock { path, .. } if path == JOURNAL),
+        matches!(&err, OpenError::Lock { path, .. } if *path == journal_text()),
         "{err:?}"
     );
 }
@@ -732,7 +747,7 @@ fn test_a_complete_line_that_is_not_an_entry_is_corrupt_and_left_alone() {
     let content = format!("{HEADER}this is not json\n");
     let (err, after) = refused(&content);
     assert!(
-        matches!(&err, OpenError::Corrupt { path, line: 2, .. } if path == JOURNAL),
+        matches!(&err, OpenError::Corrupt { path, line: 2, .. } if *path == journal_text()),
         "{err:?}"
     );
     assert_eq!(after, content);
@@ -756,7 +771,7 @@ fn test_a_journal_must_begin_with_its_header() {
     assert_eq!(
         err,
         OpenError::NotAJournal {
-            path: JOURNAL.to_string()
+            path: journal_text()
         }
     );
     assert_eq!(after, purge);
@@ -768,7 +783,7 @@ fn test_a_newer_format_is_refused() {
     assert_eq!(
         err,
         OpenError::UnsupportedFormat {
-            path: JOURNAL.to_string(),
+            path: journal_text(),
             found: 2,
             supported: 1
         }
@@ -791,7 +806,7 @@ fn test_an_operation_the_store_refuses_on_replay_is_named_by_its_line() {
     let (err, after) = refused(&content);
     match &err {
         OpenError::ReplayRefused { path, line, reason } => {
-            assert_eq!((path.as_str(), *line), (JOURNAL, 2));
+            assert_eq!((path.clone(), *line), (journal_text(), 2));
             assert!(reason.contains("conflict"), "{reason}");
         }
         other => panic!("{other:?}"),
