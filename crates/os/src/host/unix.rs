@@ -3,16 +3,18 @@
 use std::ffi::{CStr, OsString};
 use std::fs::{self, DirBuilder, File, Metadata, OpenOptions};
 use std::io;
+use std::os::fd::OwnedFd;
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::task::Poll;
 
 use process_wrap::std::{ChildWrapper, CommandWrap, ProcessGroup};
 use tokio::signal::unix::{signal, SignalKind};
 
+use crate::detach::{Detach, Stream};
 use crate::{Flavor, LockKind, Mode, Os, Signal, Signals, StopSignal};
 
 #[derive(Debug)]
@@ -167,24 +169,126 @@ fn no_home() -> io::Error {
     io::Error::new(io::ErrorKind::NotFound, "the account has no home directory")
 }
 
-/// Start `command` leading a new session (and so a new process group),
-/// with no controlling terminal: `setsid` in the child, before the exec.
-/// A forked child never leads a group, so the call is not refused; one
-/// that did not make the child its session's leader fails the spawn.
-pub(crate) fn spawn_detached(mut command: Command) -> io::Result<Child> {
+/// A detached process: std's child, its stdio already taken.
+#[derive(Debug)]
+pub(crate) struct Process(Child);
+
+impl Process {
+    pub(crate) fn id(&self) -> u32 {
+        self.0.id()
+    }
+
+    pub(crate) fn wait(&mut self) -> io::Result<ExitStatus> {
+        self.0.wait()
+    }
+
+    pub(crate) fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
+        self.0.try_wait()
+    }
+
+    pub(crate) fn kill(&mut self) -> io::Result<()> {
+        self.0.kill()
+    }
+}
+
+/// The highest descriptor a process with no `close_range` makes
+/// close-on-exec, one past it: its open-file limit, at most this many.
+const DESCRIPTOR_CAP: libc::c_int = 1 << 16;
+
+/// One past the highest descriptor this process can have open: its soft
+/// open-file limit, capped at [`DESCRIPTOR_CAP`] (a limit that is not read
+/// is the cap).
+fn descriptor_limit() -> libc::c_int {
+    let mut limit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: a plain call filling `limit`, which outlives it.
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } != 0 {
+        return DESCRIPTOR_CAP;
+    }
+    libc::c_int::try_from(limit.rlim_cur).map_or(DESCRIPTOR_CAP, |cur| cur.min(DESCRIPTOR_CAP))
+}
+
+/// Make every descriptor above stderr close-on-exec, in a forked child
+/// before its exec: `close_range` on Linux, else each one below `limit`
+/// (one not open is an error it ignores). Async-signal-safe: system calls
+/// alone, nothing allocated.
+fn cloexec_above_stderr(limit: libc::c_int) {
+    #[cfg(target_os = "linux")]
+    {
+        // SAFETY: a plain system call taking integers.
+        let all = unsafe {
+            libc::syscall(
+                libc::SYS_close_range,
+                3 as libc::c_uint,
+                libc::c_uint::MAX,
+                libc::CLOSE_RANGE_CLOEXEC,
+            )
+        };
+        if all == 0 {
+            return;
+        }
+    }
+    for fd in 3..limit {
+        // SAFETY: a plain call on a descriptor number; one not open fails.
+        unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) };
+    }
+}
+
+fn stdio(stream: Stream) -> Stdio {
+    match stream {
+        Stream::Null => Stdio::null(),
+        Stream::Piped => Stdio::piped(),
+        Stream::File(file) => Stdio::from(file),
+    }
+}
+
+/// Start `detach` leading a new session (and so a new process group),
+/// with no controlling terminal: `setsid` in the child, before the exec,
+/// and every descriptor above stderr made close-on-exec. A forked child
+/// never leads a group, so the call is not refused; one that did not make
+/// the child its session's leader fails the spawn.
+pub(crate) fn spawn_detached(detach: Detach) -> io::Result<(Process, [Option<File>; 3])> {
+    let mut command = Command::new(&detach.program);
+    command.args(&detach.args);
+    if detach.env_clear {
+        command.env_clear();
+    }
+    for (key, value) in &detach.env {
+        match value {
+            Some(value) => command.env(key, value),
+            None => command.env_remove(key),
+        };
+    }
+    if let Some(dir) = &detach.dir {
+        command.current_dir(dir);
+    }
+    command
+        .stdin(stdio(detach.stdin))
+        .stdout(stdio(detach.stdout))
+        .stderr(stdio(detach.stderr));
+    let limit = descriptor_limit();
     // SAFETY: the closure runs in the forked child before the exec, and
-    // calls only setsid and getpid, which are async-signal-safe,
-    // allocating nothing.
+    // calls only setsid, getpid, close_range and fcntl, which are
+    // async-signal-safe, allocating nothing.
     unsafe {
-        command.pre_exec(|| {
+        command.pre_exec(move || {
             // The new session's id is the caller's pid; -1 on failure.
             if libc::setsid() != libc::getpid() {
                 return Err(io::Error::last_os_error());
             }
+            cloexec_above_stderr(limit);
             Ok(())
         });
     }
-    command.spawn()
+    let mut child = command.spawn()?;
+    let ends = [
+        child.stdin.take().map(|e| File::from(OwnedFd::from(e))),
+        child.stdout.take().map(|e| File::from(OwnedFd::from(e))),
+        child.stderr.take().map(|e| File::from(OwnedFd::from(e))),
+    ];
+    Ok((Process(child), ends))
 }
 
 fn kind_of(signal: Signal) -> SignalKind {

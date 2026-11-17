@@ -7,24 +7,27 @@ use std::fs::{self, DirBuilder, File, Metadata, OpenOptions};
 use std::io;
 use std::os::windows::ffi::OsStringExt;
 use std::os::windows::fs::FileTypeExt;
+#[cfg(any(test, feature = "test-support"))]
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
+#[cfg(any(test, feature = "test-support"))]
 use std::process::{Child, Command};
 use std::task::Poll;
 
 use process_wrap::std::{ChildWrapper, CommandWrap, JobObject};
 use tokio::signal::windows as signal;
 
-use windows_sys::Win32::Foundation::ERROR_ACCESS_DENIED;
 use windows_sys::Win32::System::Com::CoTaskMemFree;
 #[cfg(any(test, feature = "test-support"))]
 use windows_sys::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_BREAK_EVENT};
-use windows_sys::Win32::System::Threading::{
-    CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, DETACHED_PROCESS,
-};
+#[cfg(any(test, feature = "test-support"))]
+use windows_sys::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP;
 use windows_sys::Win32::UI::Shell::{FOLDERID_Profile, SHGetKnownFolderPath, KF_FLAG_DEFAULT};
 
 use crate::{Flavor, LockKind, Mode, Os, Signal, Signals, StopSignal};
+
+mod detach;
+pub(crate) use detach::{spawn_detached, Process};
 
 #[derive(Debug)]
 pub(crate) struct Host;
@@ -161,24 +164,6 @@ unsafe fn wide_string(at: *const u16) -> OsString {
         len += 1;
     }
     OsString::from_wide(unsafe { std::slice::from_raw_parts(at, len) })
-}
-
-// Breakaway is asked first; a job that does not allow it (the caller's
-// job's limits lack JOB_OBJECT_LIMIT_BREAKAWAY_OK, as this crate's own
-// trees' do) refuses the whole CreateProcess with ERROR_ACCESS_DENIED,
-// and nothing was started, so it is asked again without.
-#[cfg_attr(test, mutants::skip)]
-pub(crate) fn spawn_detached(mut command: Command) -> io::Result<Child> {
-    // No console, and a process group of its own.
-    let detached = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP;
-    command.creation_flags(detached | CREATE_BREAKAWAY_FROM_JOB);
-    match command.spawn() {
-        Err(e) if e.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32) => {
-            command.creation_flags(detached);
-            command.spawn()
-        }
-        spawned => spawned,
-    }
 }
 
 /// One console event's listener.

@@ -40,6 +40,7 @@
     reason = "the OS layer under the file-system seam: its syscall implementors call std::fs"
 )]
 
+mod detach;
 mod flavor;
 mod host;
 pub mod process;

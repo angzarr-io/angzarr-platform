@@ -27,10 +27,12 @@ one belongs in that application's repository.
   `process-wrap` (std frontend: a child as a process tree that one call
   kills, `os::process`; a process group via `nix` on unix, a job object
   via `windows` on Windows); on unix, `libc` (getpwuid_r for the
-  account's home, setsid for a detached spawn: calls std does not wrap;
-  already in the graph through tokio and nix); on Windows, `junction`,
-  `same-file` and `windows-sys` (its console, threading, COM and shell
-  calls), each pinned exactly in Cargo.toml.
+  account's home; setsid, getrlimit, close_range and fcntl for a
+  detached spawn: calls std does not wrap; already in the graph through
+  tokio and nix); on Windows, `junction`, `same-file` and `windows-sys`
+  (its console, threading, COM and shell calls, and CreateProcessW with a
+  handle list for a detached spawn, which std cannot make), each pinned
+  exactly in Cargo.toml.
 - **file-system** is the seam every filesystem operation goes through. It
   depends on `os`, `angzarr-diagnostic` (its errors' codes and args) and
   `tempfile` (an atomic write's staged file, a re-rooted filesystem's own

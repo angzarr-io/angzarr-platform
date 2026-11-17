@@ -5,196 +5,13 @@
 use std::io::ErrorKind;
 use std::process::Command;
 
-use super::{spawn_detached, spawn_tree};
+use super::spawn_tree;
 
 #[test]
 fn test_a_program_that_cannot_start_is_the_spawn_error() {
     let missing = Command::new("/nonexistent/angzarr-os-process-test");
     let err = spawn_tree(missing).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::NotFound);
-}
-
-#[test]
-fn test_a_detached_program_that_cannot_start_is_the_spawn_error() {
-    let missing = Command::new("/nonexistent/angzarr-os-process-test");
-    let err = spawn_detached(missing).unwrap_err();
-    assert_eq!(err.kind(), ErrorKind::NotFound);
-}
-
-/// A detached child runs the command as it was given (its arguments) and
-/// its exit status is the caller's to read.
-#[test]
-fn test_a_detached_child_runs_and_its_status_is_read() {
-    let mut command = if cfg!(windows) {
-        let mut cmd = Command::new("cmd");
-        cmd.args(["/C", "exit 3"]);
-        cmd
-    } else {
-        let mut sh = Command::new("sh");
-        sh.args(["-c", "exit 3"]);
-        sh
-    };
-    command.stdin(std::process::Stdio::null());
-    let mut child = spawn_detached(command).unwrap();
-    assert_eq!(child.wait().unwrap().code(), Some(3));
-}
-
-/// What makes [`test_detached_middle`] the middle process of
-/// [`test_a_detached_child_holds_no_handle_of_its_callers_but_its_stdio`]
-/// rather than a no-op.
-const MIDDLE: &str = "ANGZARR_OS_DETACHED_MIDDLE";
-
-/// How long the caller's pipes may stay open once the middle process has
-/// exited before a detached child is said to hold them: far longer than a
-/// process takes to exit, far shorter than the child's minute of sleep.
-const HELD: std::time::Duration = std::time::Duration::from_secs(10);
-
-/// A child that sleeps for a minute, writing nothing.
-fn sleeper() -> Command {
-    if cfg!(windows) {
-        let mut ping = Command::new("ping");
-        ping.args(["-n", "61", "127.0.0.1"]);
-        ping
-    } else {
-        let mut sleep = Command::new("sleep");
-        sleep.arg("60");
-        sleep
-    }
-}
-
-/// Run by the test below alone, as the middle process (the caller of
-/// [`spawn_detached`]), whose standard handles are that test's pipes and
-/// which holds, unnamed, an inheritable pipe of that test's: it starts a
-/// detached sleeper with null stdio, prints its pid, and exits.
-#[test]
-#[ignore = "the middle process of a test, which runs it"]
-// The sleeper is left running on purpose, to outlive this process; the
-// test that runs this kills it.
-#[allow(clippy::zombie_processes)]
-fn test_detached_middle() {
-    if std::env::var_os(MIDDLE).is_none() {
-        return;
-    }
-    let mut command = sleeper();
-    command
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    let child = spawn_detached(command).unwrap();
-    println!("detached-pid={}", child.id());
-}
-
-/// `writer` made inheritable, so a child this process starts holds it
-/// without being given it as any stdio: the unnamed handle a process gets
-/// from its parent.
-fn make_inheritable(writer: &std::io::PipeWriter) {
-    #[cfg(unix)]
-    {
-        use std::os::fd::AsRawFd;
-        // SAFETY: a plain call on a descriptor `writer` owns.
-        let cleared = unsafe { libc::fcntl(writer.as_raw_fd(), libc::F_SETFD, 0) };
-        assert_eq!(cleared, 0, "the pipe is made inheritable");
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::io::AsRawHandle;
-        use windows_sys::Win32::Foundation::{SetHandleInformation, HANDLE_FLAG_INHERIT};
-        // SAFETY: a plain call on a handle `writer` owns.
-        let set = unsafe {
-            SetHandleInformation(
-                writer.as_raw_handle(),
-                HANDLE_FLAG_INHERIT,
-                HANDLE_FLAG_INHERIT,
-            )
-        };
-        assert_ne!(set, 0, "the pipe is made inheritable");
-    }
-}
-
-/// What a reader of one of the middle process's pipes saw.
-enum Seen {
-    Line(String),
-    Eof(&'static str),
-}
-
-/// A detached child holds no handle of its caller's but the stdio it is
-/// given: once the caller has exited, a reader of the caller's stdout and
-/// stderr, and of a pipe the caller inherited and never named, sees each
-/// one's EOF at once, though the child lives on. (std on Windows creates
-/// every child inheriting every inheritable handle of its caller's; a unix
-/// descriptor without close-on-exec crosses every exec.)
-#[test]
-fn test_a_detached_child_holds_no_handle_of_its_callers_but_its_stdio() {
-    use std::io::{BufRead, BufReader, Read};
-    use std::process::Stdio;
-    use std::sync::mpsc;
-
-    let (unnamed, writer) = std::io::pipe().unwrap();
-    make_inheritable(&writer);
-    let name = module_path!().split_once("::").unwrap().1;
-    let mut middle = Command::new(std::env::current_exe().unwrap());
-    middle
-        .args(["--ignored", "--exact", "--nocapture", "--test-threads=1"])
-        .arg(format!("{name}::test_detached_middle"))
-        .env(MIDDLE, "1")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut middle = middle.spawn().unwrap();
-    // The middle process holds its own copy; this one would keep it open.
-    drop(writer);
-    let (tx, rx) = mpsc::channel();
-    let read = |what: &'static str, pipe: Box<dyn Read + Send>, tx: mpsc::Sender<Seen>| {
-        std::thread::spawn(move || {
-            for line in BufReader::new(pipe).lines().map_while(Result::ok) {
-                let _ = tx.send(Seen::Line(line));
-            }
-            let _ = tx.send(Seen::Eof(what));
-        })
-    };
-    read(
-        "stdout",
-        Box::new(middle.stdout.take().unwrap()),
-        tx.clone(),
-    );
-    read(
-        "stderr",
-        Box::new(middle.stderr.take().unwrap()),
-        tx.clone(),
-    );
-    read("the unnamed pipe", Box::new(unnamed), tx);
-    assert!(middle.wait().unwrap().success(), "the middle process ran");
-
-    let mut pid = None;
-    let mut open = vec!["stdout", "stderr", "the unnamed pipe"];
-    while !open.is_empty() {
-        match rx.recv_timeout(HELD) {
-            Ok(Seen::Line(line)) => {
-                // libtest may print the test's name on the same line.
-                if let Some((_, id)) = line.split_once("detached-pid=") {
-                    pid = Some(id.trim().to_owned());
-                }
-            }
-            Ok(Seen::Eof(what)) => open.retain(|o| *o != what),
-            Err(_) => break,
-        }
-    }
-    let pid = pid.expect("the middle process printed the detached pid");
-    let mut kill = if cfg!(windows) {
-        let mut taskkill = Command::new("taskkill");
-        taskkill.args(["/F", "/PID", &pid]);
-        taskkill
-    } else {
-        let mut kill = Command::new("kill");
-        kill.args(["-9", &pid]);
-        kill
-    };
-    let _ = kill.stdout(Stdio::null()).stderr(Stdio::null()).status();
-    assert!(
-        open.is_empty(),
-        "{open:?} of the caller's still open {HELD:?} after it exited: \
-         the detached child holds them"
-    );
 }
 
 /// Windows has no ask: nothing is sent and the call says so.
@@ -216,7 +33,7 @@ mod unix {
     use std::sync::mpsc;
     use std::time::Duration;
 
-    use crate::process::{request_stop, spawn_detached, spawn_tree, Tree};
+    use crate::process::{request_stop, spawn_tree, Tree};
 
     const SIGKILL: i32 = 9;
 
@@ -447,59 +264,5 @@ mod unix {
         let (sid, pgid) = unsafe { (libc::getsid(pid), libc::getpgid(pid)) };
         assert!(sid > 0 && pgid > 0, "pid {pid} has a session and group");
         (sid, pgid)
-    }
-
-    #[test]
-    fn test_a_detached_child_leads_a_session_and_group_of_its_own() {
-        // The child waits on its stdin, so it is there to be asked about.
-        let mut command = Command::new("sh");
-        command
-            .arg("-c")
-            .arg("cat")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null());
-        let mut child = spawn_detached(command).unwrap();
-        let (session, group) = session_and_group(child.id());
-        let ours = session_and_group(0);
-        // The setsid ran before the exec, so it is done once spawn returns.
-        assert_eq!(session, i32::try_from(child.id()).unwrap());
-        assert_eq!(group, session, "a session's leader leads its group");
-        assert_ne!(session, ours.0, "not in the spawner's session");
-        assert_ne!(group, ours.1, "not in the spawner's group");
-        drop(child.stdin.take());
-        promptly(move || assert!(child.wait().unwrap().success()));
-    }
-
-    #[test]
-    fn test_a_detached_child_has_no_controlling_terminal() {
-        // A new session has none: opening /dev/tty fails, whether or not
-        // the spawner has one.
-        let mut command = Command::new("sh");
-        command
-            .arg("-c")
-            .arg("if (exec 3</dev/tty) 2>/dev/null; then exit 1; fi; exit 0")
-            .stdin(Stdio::null());
-        let mut child = spawn_detached(command).unwrap();
-        promptly(move || assert!(child.wait().unwrap().success()));
-    }
-
-    #[test]
-    fn test_a_detached_child_keeps_the_stdio_the_command_set() {
-        let mut command = Command::new("sh");
-        command
-            .arg("-c")
-            .arg("echo detached")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped());
-        let mut child = spawn_detached(command).unwrap();
-        let mut out = String::new();
-        child
-            .stdout
-            .take()
-            .unwrap()
-            .read_to_string(&mut out)
-            .unwrap();
-        assert_eq!(out, "detached\n");
-        assert!(child.wait().unwrap().success());
     }
 }

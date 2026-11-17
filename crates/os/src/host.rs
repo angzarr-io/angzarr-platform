@@ -4,11 +4,13 @@
 use std::ffi::OsString;
 use std::fs::File;
 use std::io;
+#[cfg(any(test, feature = "test-support"))]
 use std::process::{Child, Command};
 use std::sync::Arc;
 
 use process_wrap::std::{ChildWrapper, CommandWrap};
 
+use crate::detach::Detach;
 use crate::{LockKind, Os};
 
 #[cfg(unix)]
@@ -47,10 +49,16 @@ pub(crate) fn wrap_tree(wrap: &mut CommandWrap) {
     imp::wrap_tree(wrap);
 }
 
-/// Start `command` outside the spawner's session: a new session on unix
-/// (setsid), a detached process in a new process group on Windows.
-pub(crate) fn spawn_detached(command: Command) -> io::Result<Child> {
-    imp::spawn_detached(command)
+/// A detached process: std's child on unix, its handle and id on Windows.
+pub(crate) use imp::Process;
+
+/// Start `detach` outside the spawner's session, holding no handle of the
+/// spawner's but its standard streams: a new session on unix (setsid,
+/// every other descriptor close-on-exec), a detached process in a new
+/// process group on Windows, its inherited handles named. The caller's
+/// ends of the piped streams are returned beside it.
+pub(crate) fn spawn_detached(detach: Detach) -> io::Result<(Process, [Option<File>; 3])> {
+    imp::spawn_detached(detach)
 }
 
 /// Ask `child`'s tree to stop, gracefully; whether the host has such a
