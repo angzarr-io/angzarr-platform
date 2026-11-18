@@ -139,7 +139,10 @@ fn rename_exclusive(from: &CStr, to: &CStr) -> io::Result<()> {
 
 /// Rename `from` to `to` unless something is at `to` (`EEXIST`), in one
 /// call: `renamex_np` with `RENAME_EXCL` on macOS (10.12).
+// Compiled only on macOS, where CI's macOS runner tests it; mutation runs
+// on Linux, where its mutants cannot be killed.
 #[cfg(target_os = "macos")]
+#[cfg_attr(test, mutants::skip)]
 fn rename_exclusive(from: &CStr, to: &CStr) -> io::Result<()> {
     // SAFETY: both pointers are to NUL-terminated strings the caller
     // holds for the call.
@@ -153,7 +156,9 @@ fn rename_exclusive(from: &CStr, to: &CStr) -> io::Result<()> {
 
 /// Another unix has no rename that refuses a target in one call:
 /// `Unsupported`, never a check and a rename that could race.
+// Compiled on no host CI or mutation runs on: its mutants cannot be killed.
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg_attr(test, mutants::skip)]
 fn rename_exclusive(_from: &CStr, _to: &CStr) -> io::Result<()> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
