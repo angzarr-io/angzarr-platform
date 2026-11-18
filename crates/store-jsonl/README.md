@@ -10,8 +10,9 @@ if let Some(torn) = &opened.recovered {
     eprintln!("{torn}"); // a coded notice: a half-written last line was removed
 }
 let store = opened.store; // implements Store, Processed, ListStreams, ReadStore,
-                          // Watch, Purge, Editions, Outbox, DeadLetterStore,
-                          // ReadByCorrelation and ReadUntilTime
+                          // Watch, CommitNotify, Purge, Editions, Outbox,
+                          // DeadLetterStore, ReadByCorrelation and
+                          // ReadUntilTime
 ```
 
 - In memory the store is angzarr's `MemoryStore`, so every rule of the ports
@@ -19,6 +20,8 @@ let store = opened.store; // implements Store, Processed, ListStreams, ReadStore
   that changes the store appends exactly one line, a `store_jsonl.v1.Entry`
   (`proto/store_jsonl/v1/journal.proto`) in canonical proto3 JSON. A write's
   events, positions, outbox entries and dead letters are one line.
+- A commit wakes `CommitNotify`'s waits once its line is in the journal; an
+  operation refused, or whose line did not land, wakes nothing.
 - Open takes an exclusive lock (`<journal>.lock`), replays the journal, and
   removes a torn last line, reporting it.
 - An operation is durable when its call returns (`sync_all`), unless the store

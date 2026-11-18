@@ -55,6 +55,11 @@ struct Shared {
     /// order is the commit order and no reader sees a state the journal
     /// does not hold.
     gate: Mutex<Gate>,
+    /// Notified once an operation's line is in the journal, never before
+    /// it lands and never for one refused or whose line did not land: the
+    /// in-memory store's own signal fires before the append, so it is not
+    /// handed out.
+    commits: CommitSignal,
     /// The filesystem the journal is on, kept for as long as the store is.
     _fs: Arc<dyn Fs>,
 }
@@ -117,6 +122,7 @@ impl JsonlStore {
                 inner,
                 schema,
                 gate: Mutex::new(gate),
+                commits: CommitSignal::new(),
                 _fs: fs,
             }),
         };
@@ -183,24 +189,32 @@ impl JsonlStore {
         };
         let value = result?;
         let appended = match (line, plan) {
-            (Some(line), _) => {
-                gate.sink
-                    .append(line.as_bytes())
-                    .map_err(|e| Failure::AppendFailed {
-                        ext_err_txt: e.to_string(),
-                    })
-            }
+            (Some(line), _) => gate
+                .sink
+                .append(line.as_bytes())
+                .map(|()| true)
+                .map_err(|e| Failure::AppendFailed {
+                    ext_err_txt: e.to_string(),
+                }),
             // The store accepted what no entry can record.
             (None, Plan::Unencodable) => Err(Failure::EncodeFailed {
                 ext_err_txt: "an accepted operation has no entry".to_string(),
             }),
-            (None, _) => Ok(()),
+            // Nothing changed: no line, and no commit to wake anyone for.
+            (None, _) => Ok(false),
         };
-        if let Err(failure) = appended {
-            gate.poisoned = true;
-            return Err(failure.into_store_error());
+        match appended {
+            Err(failure) => {
+                gate.poisoned = true;
+                Err(failure.into_store_error())
+            }
+            Ok(true) => {
+                drop(gate);
+                self.shared.commits.notify();
+                Ok(value)
+            }
+            Ok(false) => Ok(value),
         }
-        Ok(value)
     }
 }
 
@@ -293,7 +307,7 @@ impl Watch for JsonlStore {
 
 impl CommitNotify for JsonlStore {
     fn next_commit(&self) -> CommitWait {
-        CommitSignal::new().wait()
+        self.shared.commits.wait()
     }
 }
 
