@@ -311,6 +311,8 @@ _tests +packages:
     #!/usr/bin/env bash
     set -euo pipefail
     root='{{gates_root}}'
+    # An array that may be empty is spelled ${a[@]+"${a[@]}"}: macOS's bash
+    # 3.2 calls a bare "${a[@]}" of an empty one unbound under set -u.
     terse=(--status-level fail --final-status-level fail --success-output never --failure-output final
         --hide-progress-bar --cargo-quiet)
     cargo_terse=(-q --message-format=short)
@@ -320,12 +322,12 @@ _tests +packages:
     if [ "$1" = --workspace ]; then
         selection=(--workspace)
         doc=(--workspace)
-        for rule in "${rules[@]}"; do features+=(--features "${rule#*=}"); done
+        for rule in ${rules[@]+"${rules[@]}"}; do features+=(--features "${rule#*=}"); done
     else
         selection=() doc=()
         for name in "$@"; do
             selection+=(--package "$name")
-            for rule in "${rules[@]}"; do
+            for rule in ${rules[@]+"${rules[@]}"}; do
                 [ "${rule%%=*}" = "$name" ] && features+=(--features "${rule#*=}")
             done
         done
@@ -338,15 +340,15 @@ _tests +packages:
     if [ "${#features[@]}" -gt 0 ] && [ -n "{{features_prepare}}" ]; then
         just --justfile "$root/justfile" {{features_prepare}}
     fi
-    cargo test --manifest-path "$root/Cargo.toml" --no-run "${cargo_terse[@]}" "${selection[@]}" "${features[@]}"
+    cargo test --manifest-path "$root/Cargo.toml" --no-run ${cargo_terse[@]+"${cargo_terse[@]}"} ${selection[@]+"${selection[@]}"} ${features[@]+"${features[@]}"}
     rc=0
-    cargo nextest run --manifest-path "$root/Cargo.toml" --no-fail-fast --no-tests=pass "${terse[@]}" \
-        "${selection[@]}" "${features[@]}" || rc=$?
+    cargo nextest run --manifest-path "$root/Cargo.toml" --no-fail-fast --no-tests=pass ${terse[@]+"${terse[@]}"} \
+        ${selection[@]+"${selection[@]}"} ${features[@]+"${features[@]}"} || rc=$?
     # After a failed test, the doc tests would only bury it. Everything they
     # need was built above, so their failing is a red doc test (one that does
     # not compile included), not a build failure: 102, not cargo's 101.
     if [ "$rc" -eq 0 ] && [ "${#doc[@]}" -gt 0 ]; then
-        cargo test --manifest-path "$root/Cargo.toml" --doc "${cargo_terse[@]}" "${doc[@]}" "${features[@]}" || rc=102
+        cargo test --manifest-path "$root/Cargo.toml" --doc ${cargo_terse[@]+"${cargo_terse[@]}"} ${doc[@]+"${doc[@]}"} ${features[@]+"${features[@]}"} || rc=102
     fi
     exit "$rc"
 
