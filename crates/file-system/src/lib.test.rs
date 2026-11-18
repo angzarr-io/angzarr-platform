@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use ::os::{host, Flavor, Mode};
 
-use super::{Entry, Fs, Kind, Open, Os, Perms, Rooted};
+use super::{Entry, Fs, Kind, Open, Os, Perms, Rooted, TargetExists};
 
 /// Whether the host has unix modes (Windows has none).
 fn has_modes(case: &Case) -> bool {
@@ -461,6 +461,44 @@ fn test_rename_replaces_a_file_at_the_target(case: &Case) {
     assert!(!case.fs.exists(&from).unwrap());
 }
 
+fn test_rename_noreplace_moves_a_file_to_a_free_target(case: &Case) {
+    let from = case.write("from", b"moved");
+    let to = case.at("to");
+    case.fs.rename_noreplace(&from, &to).unwrap();
+    assert_eq!(case.fs.read(&to).unwrap(), b"moved");
+    assert!(!case.fs.exists(&from).unwrap());
+}
+
+fn test_rename_noreplace_refuses_a_file_at_the_target_as_the_callers_path(case: &Case) {
+    let from = case.write("from", b"new");
+    let to = case.write("to", b"old");
+    let e = case.fs.rename_noreplace(&from, &to).unwrap_err();
+    assert_eq!(e.kind(), ErrorKind::AlreadyExists, "{e}");
+    assert_eq!(
+        TargetExists::of(&e),
+        Some(&TargetExists { path: to.clone() })
+    );
+    assert_eq!(case.fs.read(&from).unwrap(), b"new");
+    assert_eq!(case.fs.read(&to).unwrap(), b"old");
+}
+
+fn test_rename_noreplace_of_what_is_missing_is_not_found(case: &Case) {
+    let e = case
+        .fs
+        .rename_noreplace(&case.at("missing"), &case.at("to"))
+        .unwrap_err();
+    assert_eq!(e.kind(), ErrorKind::NotFound, "{e}");
+    assert_eq!(TargetExists::of(&e), None);
+}
+
+fn test_rename_noreplace_resolves_relative_paths_against_the_working_directory(case: &Case) {
+    case.write("from", b"moved");
+    case.fs
+        .rename_noreplace(Path::new("from"), Path::new("to"))
+        .unwrap();
+    assert_eq!(case.fs.read(&case.at("to")).unwrap(), b"moved");
+}
+
 fn test_set_permissions_sets_the_mode_exactly(case: &Case) {
     if !has_modes(case) {
         return;
@@ -595,6 +633,10 @@ contract!(
     test_metadata_reports_the_length_and_when_it_was_modified,
     test_exists_follows_links_and_a_dangling_one_is_absent,
     test_rename_replaces_a_file_at_the_target,
+    test_rename_noreplace_moves_a_file_to_a_free_target,
+    test_rename_noreplace_refuses_a_file_at_the_target_as_the_callers_path,
+    test_rename_noreplace_of_what_is_missing_is_not_found,
+    test_rename_noreplace_resolves_relative_paths_against_the_working_directory,
     test_an_absolute_link_reads_back_as_written_and_is_followed,
     test_read_link_of_what_is_not_a_link_is_invalid_input,
     test_canonicalize_resolves_links_and_dots_into_the_callers_path,

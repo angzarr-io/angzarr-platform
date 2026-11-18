@@ -147,6 +147,59 @@ fn test_a_file_is_the_file_at_its_path_until_another_replaces_it() {
 }
 
 #[test]
+fn test_a_rename_that_replaces_nothing_moves_the_file() {
+    let tmp = dir();
+    let (from, to) = (tmp.path().join("from"), tmp.path().join("to"));
+    fs::write(&from, b"moved").unwrap();
+    host().rename_noreplace(&from, &to).unwrap();
+    assert_eq!(fs::read(&to).unwrap(), b"moved");
+    assert!(!from.exists(), "the source is gone");
+}
+
+#[test]
+fn test_a_rename_onto_a_file_is_already_exists_and_changes_neither() {
+    let tmp = dir();
+    let (from, to) = (tmp.path().join("from"), tmp.path().join("to"));
+    fs::write(&from, b"new").unwrap();
+    fs::write(&to, b"old").unwrap();
+    let e = host().rename_noreplace(&from, &to).unwrap_err();
+    assert_eq!(e.kind(), io::ErrorKind::AlreadyExists, "{e}");
+    assert_eq!(fs::read(&from).unwrap(), b"new");
+    assert_eq!(fs::read(&to).unwrap(), b"old");
+}
+
+#[test]
+fn test_a_rename_onto_a_directory_is_refused_and_changes_neither() {
+    let tmp = dir();
+    let (from, to) = (tmp.path().join("from"), tmp.path().join("to"));
+    fs::write(&from, b"new").unwrap();
+    fs::create_dir(&to).unwrap();
+    host().rename_noreplace(&from, &to).unwrap_err();
+    assert_eq!(fs::read(&from).unwrap(), b"new");
+    assert!(to.is_dir(), "the directory is left");
+}
+
+#[test]
+fn test_a_rename_of_a_directory_that_replaces_nothing_moves_it() {
+    let tmp = dir();
+    let (from, to) = (tmp.path().join("from"), tmp.path().join("to"));
+    fs::create_dir(&from).unwrap();
+    fs::write(from.join("inside"), b"x").unwrap();
+    host().rename_noreplace(&from, &to).unwrap();
+    assert_eq!(fs::read(to.join("inside")).unwrap(), b"x");
+    assert!(!from.exists(), "the source is gone");
+}
+
+#[test]
+fn test_a_rename_of_what_is_missing_is_not_found() {
+    let tmp = dir();
+    let (from, to) = (tmp.path().join("missing"), tmp.path().join("to"));
+    let e = host().rename_noreplace(&from, &to).unwrap_err();
+    assert_eq!(e.kind(), io::ErrorKind::NotFound, "{e}");
+    assert!(!to.exists());
+}
+
+#[test]
 fn test_a_directory_syncs_and_a_missing_one_is_not_found_where_it_is_opened() {
     let tmp = dir();
     host().sync_dir(tmp.path()).unwrap();

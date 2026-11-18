@@ -42,7 +42,7 @@ use ::os::Mode;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
-pub use error::{CwdError, EN_US};
+pub use error::{CwdError, TargetExists, EN_US};
 pub use os::Os;
 pub use rooted::Rooted;
 
@@ -148,6 +148,17 @@ pub trait Fs: Send + Sync + std::fmt::Debug {
 
     /// Rename `from` to `to`, replacing a file at `to`.
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()>;
+
+    /// Rename `from` to `to` only if nothing is at `to`, atomically
+    /// ([`::os::Os::rename_noreplace`]: no other process can put a file
+    /// there between the check and the rename). Something at `to` is
+    /// `AlreadyExists` carrying a [`TargetExists`] (its path the caller's
+    /// `to`), and both are left as they were. Provided for every `Fs`
+    /// through [`Fs::os`] and [`Fs::real_path`], so a wrapper (a test's
+    /// fault-injecting `Fs`) has it without writing it.
+    fn rename_noreplace(&self, _from: &Path, to: &Path) -> io::Result<()> {
+        Err(TargetExists::at(io::ErrorKind::Unsupported.into(), to))
+    }
 
     /// Set the mode exactly.
     fn set_permissions(&self, path: &Path, mode: Mode) -> io::Result<()>;

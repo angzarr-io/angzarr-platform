@@ -62,6 +62,10 @@ impl Os for Host {
         Ok(held.dev() == there.dev() && held.ino() == there.ino())
     }
 
+    fn rename_noreplace(&self, _from: &Path, _to: &Path) -> io::Result<()> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
+
     // Durability across a crash is not observable from a test: only that
     // the directory is opened (a missing one is NotFound) is.
     fn sync_dir(&self, dir: &Path) -> io::Result<()> {

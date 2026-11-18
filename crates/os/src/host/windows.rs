@@ -80,6 +80,10 @@ impl Os for Host {
         Ok(same_file::Handle::from_file(file.try_clone()?)? == there)
     }
 
+    fn rename_noreplace(&self, _from: &Path, _to: &Path) -> io::Result<()> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
+
     fn sync_dir(&self, _dir: &Path) -> io::Result<()> {
         // NTFS makes a rename durable with the file; a directory cannot be
         // opened to sync.

@@ -2,6 +2,7 @@
 
 use std::fmt;
 use std::io;
+use std::path::{Path, PathBuf};
 
 use angzarr_diagnostic::{code, Arg, Diagnostic};
 
@@ -47,6 +48,52 @@ impl Diagnostic for CwdError {
     }
 }
 
+/// A rename that must replace nothing ([`crate::Fs::rename_noreplace`])
+/// found something at its target, which it left as it was: the error kind
+/// is `AlreadyExists`, and this the error it carries.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct TargetExists {
+    /// The target, the caller's path.
+    pub path: PathBuf,
+}
+
+impl TargetExists {
+    /// The [`TargetExists`] `error` carries, if it is one.
+    pub fn of(error: &io::Error) -> Option<&TargetExists> {
+        error.get_ref()?.downcast_ref()
+    }
+
+    /// `error` as the caller's, at `to`: an `AlreadyExists` becomes this,
+    /// any other error is left as it is.
+    pub(crate) fn at(error: io::Error, to: &Path) -> io::Error {
+        if error.kind() == io::ErrorKind::AlreadyExists {
+            let exists = TargetExists {
+                path: to.to_path_buf(),
+            };
+            return io::Error::new(io::ErrorKind::AlreadyExists, exists);
+        }
+        error
+    }
+}
+
+impl fmt::Display for TargetExists {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        angzarr_diagnostic::display(self, f)
+    }
+}
+
+impl std::error::Error for TargetExists {}
+
+impl Diagnostic for TargetExists {
+    fn code(&self) -> &str {
+        code!("target-exists")
+    }
+
+    fn args(&self) -> Vec<(&str, Arg)> {
+        vec![("path", self.path.display().to_string().into())]
+    }
+}
+
 /// This crate's en-US messages, its name first: what an edge's catalog
 /// embeds to render its diagnostics. The text of `locales/en-US/messages.ftl`,
 /// its ids under the crate's package name (`angzarr_diagnostic::build`).
@@ -58,9 +105,14 @@ pub const EN_US: (&str, &str) = (
 /// One value of every error, for the catalog test.
 #[cfg(any(test, feature = "test-support"))]
 pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
-    vec![Box::new(CwdError {
-        reason: "No such file or directory (os error 2)".to_string(),
-    })]
+    vec![
+        Box::new(CwdError {
+            reason: "No such file or directory (os error 2)".to_string(),
+        }),
+        Box::new(TargetExists {
+            path: PathBuf::from("/work/to"),
+        }),
+    ]
 }
 
 #[cfg(test)]

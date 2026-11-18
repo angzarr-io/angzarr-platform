@@ -151,6 +151,16 @@ pub trait Os: Send + Sync + fmt::Debug {
     /// when nothing is there.
     fn same_file(&self, file: &File, path: &Path) -> io::Result<bool>;
 
+    /// Rename `from` to `to` only if nothing is at `to`, the check and the
+    /// rename one atomic step, so no other process can put a file there
+    /// between them: `renameat2(RENAME_NOREPLACE)` on Linux,
+    /// `renamex_np(RENAME_EXCL)` on macOS, `MoveFileExW` without
+    /// `MOVEFILE_REPLACE_EXISTING` on Windows. Something at `to` is
+    /// `AlreadyExists`, and both are left as they were; a filesystem that
+    /// cannot rename so, or another unix, is the OS's refusal
+    /// (`Unsupported` where there is no such call).
+    fn rename_noreplace(&self, from: &Path, to: &Path) -> io::Result<()>;
+
     /// Make a directory's entries durable (a rename into it): fsync on
     /// unix; nothing to do on Windows, where a directory cannot be opened
     /// to sync.

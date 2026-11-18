@@ -4,7 +4,10 @@ use angzarr_diagnostic::{Arg, Diagnostic};
 
 angzarr_presentation::english_for!(&[crate::EN_US.1]);
 
-use super::{diagnostic_samples, CwdError};
+use std::io;
+use std::path::PathBuf;
+
+use super::{diagnostic_samples, CwdError, TargetExists};
 
 fn arg_names(d: &dyn Diagnostic) -> Vec<&str> {
     d.args().into_iter().map(|(name, _)| name).collect()
@@ -24,6 +27,43 @@ fn test_a_cwd_error_says_why_the_working_directory_cannot_be_read() {
         matches!(&error.args()[..], [("reason", Arg::Str(r))] if r == "gone"),
         "{error:?}"
     );
+}
+
+#[test]
+fn test_a_target_that_exists_names_it_and_says_it_is_left() {
+    let error = TargetExists {
+        path: PathBuf::from("/work/to"),
+    };
+    assert_eq!(
+        error.english(),
+        "/work/to already exists, and is left as it is"
+    );
+    assert_eq!(error.code(), angzarr_diagnostic::code!("target-exists"));
+    assert!(
+        matches!(&error.args()[..], [("path", Arg::Str(p))] if p == "/work/to"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn test_an_already_exists_becomes_the_target_and_nothing_else_does() {
+    let to = PathBuf::from("/work/to");
+    let exists = TargetExists::at(io::ErrorKind::AlreadyExists.into(), &to);
+    assert_eq!(exists.kind(), io::ErrorKind::AlreadyExists);
+    assert_eq!(
+        TargetExists::of(&exists),
+        Some(&TargetExists { path: to.clone() })
+    );
+    let missing = TargetExists::at(io::ErrorKind::NotFound.into(), &to);
+    assert_eq!(missing.kind(), io::ErrorKind::NotFound);
+    assert_eq!(TargetExists::of(&missing), None);
+}
+
+#[test]
+fn test_an_error_carrying_something_else_is_no_target() {
+    let other = io::Error::new(io::ErrorKind::AlreadyExists, "elsewhere");
+    assert_eq!(TargetExists::of(&other), None);
+    assert_eq!(TargetExists::of(&io::ErrorKind::AlreadyExists.into()), None);
 }
 
 #[test]
