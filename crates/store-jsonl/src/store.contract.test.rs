@@ -69,6 +69,11 @@ mod watch {
     angzarr_ports::store_contract!(watch, #[tokio::test], fresh());
 }
 
+mod notify {
+    use super::*;
+    angzarr_ports::store_contract!(notify, #[tokio::test], fresh());
+}
+
 mod until_time {
     use super::*;
     angzarr_ports::store_contract!(until_time, #[tokio::test], fresh());

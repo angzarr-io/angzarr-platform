@@ -7,10 +7,10 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use angzarr_ports::angzarr_proto::v1::{Cover, EditionSummary, EventBook, EventPage, Snapshot};
 use angzarr_ports::memory::{MemoryRead, MemoryStore};
 use angzarr_ports::{
-    ChangeToken, DeadLetter, DeadLetterKey, DeadLetterStore, Editions, EventStore, Head,
-    ListStreams, Outbox, OutboxEntry, PositionKey, PositionStore, Processed, Purge,
-    ReadByCorrelation, ReadStore, ReadUntilTime, Slice, SnapshotStore, StoreError, StreamRef, Uuid,
-    Watch, Write, Written,
+    ChangeToken, CommitNotify, CommitSignal, CommitWait, DeadLetter, DeadLetterKey,
+    DeadLetterStore, Editions, EventStore, Head, ListStreams, Outbox, OutboxEntry, PositionKey,
+    PositionStore, Processed, Purge, ReadByCorrelation, ReadStore, ReadUntilTime, Slice,
+    SnapshotStore, StoreError, StreamRef, Uuid, Watch, Write, Written,
 };
 use file_system::Fs;
 use prost_types::Timestamp;
@@ -288,6 +288,12 @@ impl ReadStore for JsonlStore {
 impl Watch for JsonlStore {
     async fn change_token(&self) -> Result<ChangeToken, StoreError> {
         self.observe(async |inner| inner.change_token().await)
+    }
+}
+
+impl CommitNotify for JsonlStore {
+    fn next_commit(&self) -> CommitWait {
+        CommitSignal::new().wait()
     }
 }
 

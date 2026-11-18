@@ -4,6 +4,7 @@
 //! has one store at a time, and replay is deterministic.
 
 use std::fmt::Write as _;
+use std::future::Future as _;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
@@ -14,9 +15,9 @@ use angzarr_ports::contract::{
     put_dead_letters, snapshot,
 };
 use angzarr_ports::{
-    Append, DeadLetter, DeadLetterAt, DeadLetterStore, Editions, EventStore, ListStreams, Outbox,
-    PositionKey, PositionStore, Processed, Purge, ReadStore, SnapshotStore, StoreError, StreamRef,
-    Watch, Write,
+    Append, CommitNotify, CommitWait, DeadLetter, DeadLetterAt, DeadLetterStore, Editions,
+    EventStore, ListStreams, Outbox, PositionKey, PositionStore, Processed, Purge, ReadStore,
+    SnapshotStore, StoreError, StreamRef, Watch, Write,
 };
 use file_system::{Fs, Perms, Rooted};
 use os::{host, Flavor, Mode};
@@ -951,6 +952,41 @@ async fn test_a_crash_between_the_commit_and_the_append_loses_what_was_never_ack
     let reopened = open(&fs);
     assert!(reopened.recovered.is_none());
     assert_eq!(reopened.store.head(s1()).await.unwrap().next_sequence, 1);
+}
+
+/// Whether `wait` has resolved, polled once.
+fn resolved(wait: &mut CommitWait) -> bool {
+    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    std::pin::Pin::new(wait).poll(&mut cx).is_ready()
+}
+
+#[tokio::test]
+async fn test_a_commit_wakes_a_wait_only_once_its_line_is_in_the_journal() {
+    let fs = home();
+    let (store, _) = open_flaky(&fs, 1, false);
+    let mut landed = store.next_commit();
+    append(&store, s1(), 0, &[page(0, 1)]).await.unwrap();
+    assert!(resolved(&mut landed), "a journaled append wakes the wait");
+
+    let mut unheard = store.next_commit();
+    append(&store, s1(), 1, &[page(1, 1)]).await.unwrap_err();
+    assert!(
+        !resolved(&mut unheard),
+        "an operation whose line did not land wakes nothing"
+    );
+}
+
+#[tokio::test]
+async fn test_clones_share_one_store_s_commits() {
+    let store = open(&home()).store;
+    let mut wait = store.next_commit();
+    append(&store.clone(), s1(), 0, &[page(0, 1)])
+        .await
+        .unwrap();
+    assert!(
+        resolved(&mut wait),
+        "a clone's append wakes the other's wait"
+    );
 }
 
 #[tokio::test]
