@@ -49,6 +49,10 @@ use crate::host;
 /// is given time to stop.
 const POLL: Duration = Duration::from_millis(5);
 
+/// How long a child whose kill was refused is given to finish exiting
+/// before the refusal is taken for real ([`Tree::kill_tree`]).
+const EXITING: Duration = Duration::from_secs(1);
+
 /// A running child and its descendants, started by [`spawn_tree`].
 #[derive(Debug)]
 pub struct Tree {
@@ -129,12 +133,32 @@ impl Tree {
     /// it.
     pub fn kill_tree(&mut self) -> io::Result<()> {
         let killed = self.child.start_kill();
-        if killed.is_err() && self.child.try_wait()?.is_none() {
+        if killed.is_err() && !self.exits_within(EXITING)? {
             // The kill failed and the child is still there: not a tree
             // that had gone.
             return killed;
         }
         self.child.wait().map(drop)
+    }
+
+    /// Whether the child has exited, or does within `grace`. A kill can be
+    /// refused for a child that is exiting: macOS's killpg answers EPERM
+    /// for a group whose leader is past its last write and not yet a
+    /// zombie, where Linux's succeeds.
+    // Reached only when a kill is refused, which no Linux test can make
+    // happen for a child of its own; CI's macOS runner runs it.
+    #[cfg_attr(test, mutants::skip)]
+    fn exits_within(&mut self, grace: Duration) -> io::Result<bool> {
+        let deadline = Instant::now() + grace;
+        loop {
+            if self.child.try_wait()?.is_some() {
+                return Ok(true);
+            }
+            if Instant::now() >= deadline {
+                return Ok(false);
+            }
+            std::thread::sleep(POLL);
+        }
     }
 
     /// Ask the tree to stop, give the child up to `grace` to do so, then
