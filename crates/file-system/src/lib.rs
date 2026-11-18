@@ -7,6 +7,9 @@
 //! - [`Rooted`]: every path re-rooted under one directory (afero's
 //!   `BasePathFs` over `OsFs`). Tests, through [`Rooted::temp`].
 //!
+//! And, behind `test-support`, `Recording`: another filesystem's calls
+//! handed on, each that changes the disk kept in order.
+//!
 //! Errors are `std::io::Error` with the kind the OS gave (`NotFound`,
 //! `AlreadyExists`, ...), plus the seam's own refusals:
 //!
@@ -31,6 +34,8 @@
 mod error;
 mod os;
 mod real;
+#[cfg(any(test, feature = "test-support"))]
+mod recording;
 mod rooted;
 
 use std::fs::File;
@@ -44,6 +49,8 @@ use ::os::Mode;
 pub use error::diagnostic_samples;
 pub use error::{CwdError, TargetExists, EN_US};
 pub use os::Os;
+#[cfg(any(test, feature = "test-support"))]
+pub use recording::{Call, Recording};
 pub use rooted::Rooted;
 
 /// The permissions an atomic write leaves the file with.
@@ -163,6 +170,15 @@ pub trait Fs: Send + Sync + std::fmt::Debug {
             .map_err(|e| TargetExists::at(e, to))
     }
 
+    /// Make the directory's entries durable, as a rename into or out of it
+    /// leaves them ([`::os::Os::sync_dir`]: fsync on unix; nothing to do on
+    /// Windows, where a rename is durable with its file). Nothing at `dir`
+    /// is `NotFound` on unix. Provided for every `Fs` through [`Fs::os`]
+    /// and [`Fs::real_path`], so a wrapper has it without writing it.
+    fn sync_dir(&self, dir: &Path) -> io::Result<()> {
+        self.os().sync_dir(&self.real_path(dir)?)
+    }
+
     /// Set the mode exactly.
     fn set_permissions(&self, path: &Path, mode: Mode) -> io::Result<()>;
 
@@ -199,7 +215,8 @@ pub trait Fs: Send + Sync + std::fmt::Debug {
     /// The OS path `path` is at, for what must open a path itself (SQLite's
     /// database, an advisory lock file): `path` itself for [`Os`], its
     /// re-rooted place for [`Rooted`]. Nothing else may use it but
-    /// [`Fs::rename_noreplace`]'s provided body, which hands it to the OS.
+    /// the provided bodies of [`Fs::rename_noreplace`] and
+    /// [`Fs::sync_dir`], which hand it to the OS.
     fn real_path(&self, path: &Path) -> io::Result<PathBuf>;
 
     /// Whether `file` is the file at `path` now (links followed): the same

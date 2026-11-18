@@ -40,7 +40,12 @@ one belongs in that application's repository.
   depends on `os`, `angzarr-diagnostic` (its errors' codes and args) and
   `tempfile` (an atomic write's staged file, a re-rooted filesystem's own
   temporary root). It and `os` alone call `std::fs` (clippy.toml's
-  `disallowed-methods`, each one's `#![allow]` saying why).
+  `disallowed-methods`, each one's `#![allow]` saying why). A directory's
+  entries are made durable by `Fs::sync_dir` (after a rename into or out
+  of it; `os::Os::sync_dir`: fsync on unix, nothing on Windows). Behind
+  its `test-support` feature, `Recording` hands every call to another
+  `Fs` and keeps, in order, each that changes the disk (`Call`), for a
+  test that must see the order of its code's calls.
 - **file-lock** depends on `os`, `file-system` and `angzarr-diagnostic`.
 
 - **file-lock** and **file-system** are also what **store-jsonl** is built

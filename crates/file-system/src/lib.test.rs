@@ -499,6 +499,24 @@ fn test_rename_noreplace_resolves_relative_paths_against_the_working_directory(c
     assert_eq!(case.fs.read(&case.at("to")).unwrap(), b"moved");
 }
 
+fn test_sync_dir_syncs_a_directory_and_a_missing_one_is_not_found_on_unix(case: &Case) {
+    let dir = case.dir("sub");
+    case.fs.sync_dir(&dir).unwrap();
+    let missing = case.fs.sync_dir(&case.at("missing"));
+    if case.fs.os().flavor() == Flavor::Unix {
+        assert_eq!(missing.unwrap_err().kind(), ErrorKind::NotFound);
+    }
+}
+
+fn test_sync_dir_resolves_a_relative_path_against_the_working_directory(case: &Case) {
+    case.dir("sub");
+    case.fs.sync_dir(Path::new("sub")).unwrap();
+    let missing = case.fs.sync_dir(Path::new("missing"));
+    if case.fs.os().flavor() == Flavor::Unix {
+        assert_eq!(missing.unwrap_err().kind(), ErrorKind::NotFound);
+    }
+}
+
 fn test_set_permissions_sets_the_mode_exactly(case: &Case) {
     if !has_modes(case) {
         return;
@@ -637,6 +655,8 @@ contract!(
     test_rename_noreplace_refuses_a_file_at_the_target_as_the_callers_path,
     test_rename_noreplace_of_what_is_missing_is_not_found,
     test_rename_noreplace_resolves_relative_paths_against_the_working_directory,
+    test_sync_dir_syncs_a_directory_and_a_missing_one_is_not_found_on_unix,
+    test_sync_dir_resolves_a_relative_path_against_the_working_directory,
     test_an_absolute_link_reads_back_as_written_and_is_followed,
     test_read_link_of_what_is_not_a_link_is_invalid_input,
     test_canonicalize_resolves_links_and_dots_into_the_callers_path,

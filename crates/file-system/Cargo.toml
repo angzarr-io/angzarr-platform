@@ -30,7 +30,8 @@ os = { workspace = true, features = ["test-support"] }
 angzarr-diagnostic = { workspace = true, features = ["build"] }
 
 [features]
-# `diagnostic_samples`, for other crates' catalog tests: their
+# `diagnostic_samples`, for other crates' catalog tests, and `Recording`,
+# for a test that must see the order of its code's calls: their
 # dev-dependency turns it on, and no build of a binary does.
 test-support = []
 
