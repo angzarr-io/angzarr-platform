@@ -200,6 +200,19 @@ fn test_a_rename_of_what_is_missing_is_not_found() {
 }
 
 #[test]
+fn test_a_rename_of_a_path_holding_a_nul_is_invalid_input() {
+    let tmp = dir();
+    let from = tmp.path().join("from");
+    fs::write(&from, b"x").unwrap();
+    let to = tmp.path().join("t\0o");
+    let e = host().rename_noreplace(&from, &to).unwrap_err();
+    assert_eq!(e.kind(), io::ErrorKind::InvalidInput, "{e}");
+    let e = host().rename_noreplace(&to, &from).unwrap_err();
+    assert_eq!(e.kind(), io::ErrorKind::InvalidInput, "{e}");
+    assert_eq!(fs::read(&from).unwrap(), b"x");
+}
+
+#[test]
 fn test_a_directory_syncs_and_a_missing_one_is_not_found_where_it_is_opened() {
     let tmp = dir();
     host().sync_dir(tmp.path()).unwrap();

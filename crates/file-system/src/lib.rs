@@ -156,8 +156,11 @@ pub trait Fs: Send + Sync + std::fmt::Debug {
     /// `to`), and both are left as they were. Provided for every `Fs`
     /// through [`Fs::os`] and [`Fs::real_path`], so a wrapper (a test's
     /// fault-injecting `Fs`) has it without writing it.
-    fn rename_noreplace(&self, _from: &Path, to: &Path) -> io::Result<()> {
-        Err(TargetExists::at(io::ErrorKind::Unsupported.into(), to))
+    fn rename_noreplace(&self, from: &Path, to: &Path) -> io::Result<()> {
+        let (real_from, real_to) = (self.real_path(from)?, self.real_path(to)?);
+        self.os()
+            .rename_noreplace(&real_from, &real_to)
+            .map_err(|e| TargetExists::at(e, to))
     }
 
     /// Set the mode exactly.
@@ -195,7 +198,8 @@ pub trait Fs: Send + Sync + std::fmt::Debug {
 
     /// The OS path `path` is at, for what must open a path itself (SQLite's
     /// database, an advisory lock file): `path` itself for [`Os`], its
-    /// re-rooted place for [`Rooted`]. Nothing else may use it.
+    /// re-rooted place for [`Rooted`]. Nothing else may use it but
+    /// [`Fs::rename_noreplace`]'s provided body, which hands it to the OS.
     fn real_path(&self, path: &Path) -> io::Result<PathBuf>;
 
     /// Whether `file` is the file at `path` now (links followed): the same

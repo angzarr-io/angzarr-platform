@@ -1,10 +1,10 @@
 //! The unix syscalls.
 
-use std::ffi::{CStr, OsString};
+use std::ffi::{CStr, CString, OsString};
 use std::fs::{self, DirBuilder, File, Metadata, OpenOptions};
 use std::io;
 use std::os::fd::OwnedFd;
-use std::os::unix::ffi::OsStringExt;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -62,8 +62,8 @@ impl Os for Host {
         Ok(held.dev() == there.dev() && held.ino() == there.ino())
     }
 
-    fn rename_noreplace(&self, _from: &Path, _to: &Path) -> io::Result<()> {
-        Err(io::ErrorKind::Unsupported.into())
+    fn rename_noreplace(&self, from: &Path, to: &Path) -> io::Result<()> {
+        rename_exclusive(&c_path(from)?, &c_path(to)?)
     }
 
     // Durability across a crash is not observable from a test: only that
@@ -103,6 +103,62 @@ impl Os for Host {
     fn user_home(&self) -> io::Result<PathBuf> {
         account_home(FIRST_BUFFER, LAST_BUFFER)
     }
+}
+
+/// `path` as the C string a system call takes; `InvalidInput` when it
+/// holds a NUL.
+fn c_path(path: &Path) -> io::Result<CString> {
+    CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "a path holding a NUL"))
+}
+
+/// Rename `from` to `to` unless something is at `to` (`EEXIST`), in one
+/// system call: `renameat2` with `RENAME_NOREPLACE` on Linux (3.15, by
+/// number, so no libc wrapper's version is needed).
+#[cfg(target_os = "linux")]
+fn rename_exclusive(from: &CStr, to: &CStr) -> io::Result<()> {
+    // SAFETY: both pointers are to NUL-terminated strings the caller
+    // holds for the call; the directories are the working directory's
+    // (both paths are absolute or the caller's relative ones).
+    let status = unsafe {
+        libc::syscall(
+            libc::SYS_renameat2,
+            libc::AT_FDCWD,
+            from.as_ptr(),
+            libc::AT_FDCWD,
+            to.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// Rename `from` to `to` unless something is at `to` (`EEXIST`), in one
+/// call: `renamex_np` with `RENAME_EXCL` on macOS (10.12).
+#[cfg(target_os = "macos")]
+fn rename_exclusive(from: &CStr, to: &CStr) -> io::Result<()> {
+    // SAFETY: both pointers are to NUL-terminated strings the caller
+    // holds for the call.
+    let status = unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_EXCL) };
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// Another unix has no rename that refuses a target in one call:
+/// `Unsupported`, never a check and a rename that could race.
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn rename_exclusive(_from: &CStr, _to: &CStr) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "no rename that refuses an existing target on this system",
+    ))
 }
 
 /// getpwuid_r's first buffer for the entry's strings: what glibc's

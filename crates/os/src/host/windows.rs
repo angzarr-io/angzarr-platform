@@ -5,7 +5,7 @@
 use std::ffi::OsString;
 use std::fs::{self, DirBuilder, File, Metadata, OpenOptions};
 use std::io;
-use std::os::windows::ffi::OsStringExt;
+use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::os::windows::fs::FileTypeExt;
 #[cfg(any(test, feature = "test-support"))]
 use std::os::windows::process::CommandExt;
@@ -17,6 +17,7 @@ use std::task::Poll;
 use process_wrap::std::{ChildWrapper, CommandWrap, JobObject};
 use tokio::signal::windows as signal;
 
+use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
 use windows_sys::Win32::System::Com::CoTaskMemFree;
 #[cfg(any(test, feature = "test-support"))]
 use windows_sys::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_BREAK_EVENT};
@@ -80,8 +81,20 @@ impl Os for Host {
         Ok(same_file::Handle::from_file(file.try_clone()?)? == there)
     }
 
-    fn rename_noreplace(&self, _from: &Path, _to: &Path) -> io::Result<()> {
-        Err(io::ErrorKind::Unsupported.into())
+    // MoveFileExW without MOVEFILE_REPLACE_EXISTING: a file at `to` is
+    // ERROR_ALREADY_EXISTS (or ERROR_FILE_EXISTS), which std reads as
+    // AlreadyExists. Without MOVEFILE_COPY_ALLOWED, as std's rename, it
+    // never copies across volumes.
+    fn rename_noreplace(&self, from: &Path, to: &Path) -> io::Result<()> {
+        let (from, to) = (wide_path(from)?, wide_path(to)?);
+        // SAFETY: both pointers are to NUL-terminated wide strings held
+        // for the call.
+        let moved = unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), 0) };
+        if moved == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
     }
 
     fn sync_dir(&self, _dir: &Path) -> io::Result<()> {
@@ -154,6 +167,20 @@ impl Os for Host {
         unsafe { CoTaskMemFree(path.cast()) };
         home
     }
+}
+
+/// `path` as the NUL-terminated wide string a call takes; `InvalidInput`
+/// when it holds a NUL.
+#[cfg_attr(test, mutants::skip)]
+fn wide_path(path: &Path) -> io::Result<Vec<u16>> {
+    let units: Vec<u16> = path.as_os_str().encode_wide().collect();
+    if units.contains(&0) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a path holding a NUL",
+        ));
+    }
+    Ok(units.into_iter().chain([0]).collect())
 }
 
 /// The NUL-terminated wide string at `at`.

@@ -28,11 +28,14 @@ one belongs in that application's repository.
   kills, `os::process`; a process group via `nix` on unix, a job object
   via `windows` on Windows); on unix, `libc` (getpwuid_r for the
   account's home; setsid, getrlimit, close_range and fcntl for a
-  detached spawn: calls std does not wrap; already in the graph through
-  tokio and nix); on Windows, `junction`, `same-file` and `windows-sys`
-  (its console, threading, COM and shell calls, and CreateProcessW with a
-  handle list for a detached spawn, which std cannot make), each pinned
-  exactly in Cargo.toml.
+  detached spawn; renameat2 with RENAME_NOREPLACE on Linux and renamex_np
+  with RENAME_EXCL on macOS for a rename that replaces nothing: calls std
+  does not wrap; already in the graph through tokio and nix); on Windows,
+  `junction`, `same-file` and `windows-sys` (its console, threading, COM
+  and shell calls, MoveFileExW without MOVEFILE_REPLACE_EXISTING for a
+  rename that replaces nothing, and CreateProcessW with a handle list for
+  a detached spawn, which std cannot make), each pinned exactly in
+  Cargo.toml.
 - **file-system** is the seam every filesystem operation goes through. It
   depends on `os`, `angzarr-diagnostic` (its errors' codes and args) and
   `tempfile` (an atomic write's staged file, a re-rooted filesystem's own
@@ -112,7 +115,7 @@ on a failure, a `FAIL` line, the extract worth reading, and the full log in
 `target/logs/<gate>.log`. `VERBOSE=1 just <gate>` shows the full output.
 `just test` runs cargo-nextest. `just check-windows` compiles every crate
 for Windows on a Linux host (`rustup target add x86_64-pc-windows-gnu`);
-CI builds and tests on Windows natively.
+CI builds and tests on Windows and macOS natively.
 
 The complexity gate is clippy's `cognitive_complexity` (25),
 `too_many_lines` (100) and `excessive_nesting` (6, clippy.toml), denied by
