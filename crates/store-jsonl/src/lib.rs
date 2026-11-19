@@ -3,7 +3,7 @@
 //!
 //! [`JsonlStore`] implements every store port: [`Store`](angzarr_ports::Store)
 //! (events, snapshots, positions) and `Processed`, `ListStreams`, `ReadStore`,
-//! `Watch`, `Purge`, `Editions`, `Outbox`, `DeadLetterStore`,
+//! `Watch`, `CommitNotify`, `Purge`, `Editions`, `Outbox`, `DeadLetterStore`,
 //! `ReadByCorrelation` and `ReadUntilTime`. It does not implement
 //! `Migrations` or `Backup`: a journal has no schema to migrate and its file
 //! is its own backup, and neither is a bound of the embedded host's stores.
@@ -61,7 +61,7 @@
 //! ([`OpenError::InUse`]) rather than diverging from the first: a commit
 //! through one process could never be seen through another. It runs the
 //! suite's base form and its one-handle sections (`read_one_handle*`,
-//! `read_forks`, `watch`, `until_time`, `correlation`, `list_streams`,
+//! `read_forks`, `watch`, `notify`, `until_time`, `correlation`, `list_streams`,
 //! `processed`, `purge`, `editions*`, `outbox*`, `dead_letters*`). A user
 //! who needs several processes on one store needs a store that claims
 //! `shared_handles` (angzarr's SQLite store, for one).
