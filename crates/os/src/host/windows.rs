@@ -258,3 +258,17 @@ pub(crate) fn request_stop(_child: &dyn ChildWrapper) -> bool {
 pub(crate) fn request_stop_pid(_pid: u32) -> bool {
     false
 }
+
+// No endpoint is measured on Windows (`crate::socket`): the post is said
+// unsupported, never tried over another transport.
+#[cfg_attr(test, mutants::skip)]
+pub(crate) fn post_local(
+    _path: &Path,
+    _bytes: &[u8],
+    _write_timeout: std::time::Duration,
+) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "no local stream socket is posted to on Windows",
+    ))
+}

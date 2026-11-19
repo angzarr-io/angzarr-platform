@@ -45,6 +45,7 @@ mod flavor;
 mod host;
 pub mod process;
 mod signal;
+pub mod socket;
 mod top;
 
 use std::ffi::OsString;

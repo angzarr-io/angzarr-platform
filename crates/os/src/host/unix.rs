@@ -426,6 +426,18 @@ pub(crate) fn request_stop_pid(pid: u32) -> bool {
     }
 }
 
+/// A unix domain socket's post (`crate::socket::post_local`).
+pub(crate) fn post_local(
+    path: &Path,
+    bytes: &[u8],
+    write_timeout: std::time::Duration,
+) -> io::Result<()> {
+    use std::io::Write;
+    let mut socket = std::os::unix::net::UnixStream::connect(path)?;
+    socket.set_write_timeout(Some(write_timeout))?;
+    socket.write_all(bytes)
+}
+
 #[cfg(test)]
 #[path = "unix.test.rs"]
 mod tests;

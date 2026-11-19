@@ -74,6 +74,15 @@ pub(crate) fn request_stop_pid(pid: u32) -> bool {
     imp::request_stop_pid(pid)
 }
 
+/// Post `bytes` to the local stream socket at `path` (`crate::socket`).
+pub(crate) fn post_local(
+    path: &std::path::Path,
+    bytes: &[u8],
+    write_timeout: std::time::Duration,
+) -> io::Result<()> {
+    imp::post_local(path, bytes, write_timeout)
+}
+
 /// Take `kind` of lock on `file` without waiting: fs4's flock on unix,
 /// LockFileEx on Windows, which name no OS here.
 fn try_lock(file: &File, kind: LockKind) -> io::Result<bool> {

@@ -35,7 +35,10 @@ one belongs in that application's repository.
   and shell calls, MoveFileExW without MOVEFILE_REPLACE_EXISTING for a
   rename that replaces nothing, and CreateProcessW with a handle list for
   a detached spawn, which std cannot make), each pinned exactly in
-  Cargo.toml.
+  Cargo.toml. A post to a local stream socket at a path
+  (`os::socket::post_local`: connect, write under a write timeout, close)
+  is std's unix domain socket on unix, no dependency, and `Unsupported`
+  on Windows, where no caller has measured an endpoint.
 - **file-system** is the seam every filesystem operation goes through. It
   depends on `os`, `angzarr-diagnostic` (its errors' codes and args) and
   `tempfile` (an atomic write's staged file, a re-rooted filesystem's own
