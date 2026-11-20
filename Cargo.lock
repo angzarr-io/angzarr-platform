@@ -14,12 +14,12 @@ dependencies = [
 [[package]]
 name = "angzarr-diagnostic"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr?rev=e532d31337e179339b26daa9b11406d8f4ec9a68#e532d31337e179339b26daa9b11406d8f4ec9a68"
+source = "git+https://github.com/angzarr-io/angzarr?rev=3535a54a25e95b57dabbcbaea5f3603b1ac13f5c#3535a54a25e95b57dabbcbaea5f3603b1ac13f5c"
 
 [[package]]
 name = "angzarr-ports"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr?rev=e532d31337e179339b26daa9b11406d8f4ec9a68#e532d31337e179339b26daa9b11406d8f4ec9a68"
+source = "git+https://github.com/angzarr-io/angzarr?rev=3535a54a25e95b57dabbcbaea5f3603b1ac13f5c#3535a54a25e95b57dabbcbaea5f3603b1ac13f5c"
 dependencies = [
  "angzarr-diagnostic",
  "angzarr-proto",
@@ -30,7 +30,7 @@ dependencies = [
 [[package]]
 name = "angzarr-presentation"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr?rev=e532d31337e179339b26daa9b11406d8f4ec9a68#e532d31337e179339b26daa9b11406d8f4ec9a68"
+source = "git+https://github.com/angzarr-io/angzarr?rev=3535a54a25e95b57dabbcbaea5f3603b1ac13f5c#3535a54a25e95b57dabbcbaea5f3603b1ac13f5c"
 dependencies = [
  "angzarr-diagnostic",
  "fluent-bundle",
@@ -44,7 +44,7 @@ dependencies = [
 [[package]]
 name = "angzarr-proto"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr?rev=e532d31337e179339b26daa9b11406d8f4ec9a68#e532d31337e179339b26daa9b11406d8f4ec9a68"
+source = "git+https://github.com/angzarr-io/angzarr?rev=3535a54a25e95b57dabbcbaea5f3603b1ac13f5c#3535a54a25e95b57dabbcbaea5f3603b1ac13f5c"
 dependencies = [
  "bytes",
  "prost",
@@ -56,7 +56,7 @@ dependencies = [
 [[package]]
 name = "angzarr-proto-jsonl"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr?rev=e532d31337e179339b26daa9b11406d8f4ec9a68#e532d31337e179339b26daa9b11406d8f4ec9a68"
+source = "git+https://github.com/angzarr-io/angzarr?rev=3535a54a25e95b57dabbcbaea5f3603b1ac13f5c#3535a54a25e95b57dabbcbaea5f3603b1ac13f5c"
 dependencies = [
  "angzarr-diagnostic",
  "prost-reflect",
