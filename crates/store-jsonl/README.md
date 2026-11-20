@@ -20,7 +20,10 @@ let store = opened.store; // implements Store, Processed, ListStreams, ReadStore
   that changes the store appends exactly one line, a `store_jsonl.v1.Entry`
   (`proto/store_jsonl/v1/journal.proto`) in canonical proto3 JSON. A write's
   events, positions, outbox entries, the outbox entries it clears and dead
-  letters are one line.
+  letters are one line. The first line is a header naming the format
+  (now 2: a write's cleared outbox ids are journaled). A format 1 journal is
+  read as it was and made format 2 when opened; a journal in a later format
+  is refused, naming both formats.
 - A commit wakes `CommitNotify`'s waits once its line is in the journal; an
   operation refused, or whose line did not land, wakes nothing.
 - Open takes an exclusive lock (`<journal>.lock`), replays the journal, and

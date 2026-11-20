@@ -23,6 +23,12 @@
 //!   line, so a line is the atomic unit; a purge, a snapshot, an edition
 //!   stream's removal, an outbox clear and a dead letters' drain or removal
 //!   are one line each. The first line is a header naming the format.
+//!   Format 2 journals a write's cleared outbox ids; format 1 journals,
+//!   written before, are read as they were (clearing nothing through a
+//!   write) and are made format 2 when opened, only the header line
+//!   changing. A build that reads up to format 2 refuses a journal in a
+//!   later format outright, naming both. A later change to the journal's
+//!   layout will be a further format.
 //! - **Opaque payloads.** The store never reads what it keeps: an event
 //!   page, a snapshot, an outbox message and a dead letter's letter are
 //!   journaled as the bytes the wire encodes them as (base64 in JSON), so

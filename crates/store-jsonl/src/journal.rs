@@ -168,11 +168,14 @@ fn replay(
         make(fs, journal, schema)?;
         return Ok(None);
     }
-    let torn = read_entries(fs, journal, schema, inner)?;
+    let mut format = schema::FORMAT;
+    let torn = read_entries(fs, journal, schema, inner, &mut format)?;
     let Some((line, bytes)) = torn else {
+        upgrade(fs, journal, schema, format)?;
         return Ok(None);
     };
     truncate(fs, journal, schema, len, bytes)?;
+    upgrade(fs, journal, schema, format)?;
     Ok(Some(TornTail {
         path: journal.to_path_buf(),
         line,
@@ -180,13 +183,41 @@ fn replay(
     }))
 }
 
-/// Read every line into `inner`. Returns the torn last line's number and
-/// length, if the journal ends in one.
+/// Make a journal that was written in an older format the current one, so
+/// that what is appended to it is read as the format it is in: only the
+/// header line changes, and the journal is replaced atomically. A journal
+/// already in the current format is left alone.
+fn upgrade(
+    fs: &Arc<dyn Fs>,
+    journal: &Path,
+    schema: &Schema,
+    format: u32,
+) -> Result<(), OpenError> {
+    if format == schema::FORMAT {
+        return Ok(());
+    }
+    let header = header_line(schema).map_err(|e| OpenError::io(journal, e))?;
+    let whole = fs.read(journal).map_err(|e| OpenError::io(journal, e))?;
+    // The header is the first line, which the replay has read whole.
+    let end = whole
+        .iter()
+        .position(|byte| *byte == b'\n')
+        .map_or(whole.len(), |at| at + 1);
+    let mut upgraded = header.into_bytes();
+    upgraded.extend_from_slice(&whole[end..]);
+    fs.write_atomic(journal, &upgraded, Perms::KeepOr(JOURNAL_MODE))
+        .map_err(|e| OpenError::io(journal, e))
+}
+
+/// Read every line into `inner`, and the format of the journal's header into
+/// `format`. Returns the torn last line's number and length, if the journal
+/// ends in one.
 fn read_entries(
     fs: &Arc<dyn Fs>,
     journal: &Path,
     schema: &Schema,
     inner: &MemoryStore,
+    format: &mut u32,
 ) -> Result<Option<(usize, usize)>, OpenError> {
     let file = fs
         .open(journal, Open::Read)
@@ -220,7 +251,7 @@ fn read_entries(
                 reason: e.to_string(),
             })?;
         if line == 1 {
-            check_header(&path, &entry)?;
+            *format = check_header(&path, &entry)?;
             continue;
         }
         entry::replay(inner, entry).map_err(|e| OpenError::ReplayRefused {
@@ -232,10 +263,14 @@ fn read_entries(
     Ok(None)
 }
 
-/// The first line must be a header of the format this build reads.
-fn check_header(path: &str, first: &schema::Entry) -> Result<(), OpenError> {
+/// The first line must be a header of a format this build reads; returns it.
+fn check_header(path: &str, first: &schema::Entry) -> Result<u32, OpenError> {
     match &first.op {
-        Some(Op::Header(header)) if header.format == schema::FORMAT => Ok(()),
+        Some(Op::Header(header))
+            if (schema::OLDEST_FORMAT..=schema::FORMAT).contains(&header.format) =>
+        {
+            Ok(header.format)
+        }
         Some(Op::Header(header)) => Err(OpenError::UnsupportedFormat {
             path: path.to_string(),
             found: header.format,

@@ -16,8 +16,13 @@ use prost_types::{
     OneofDescriptorProto,
 };
 
-/// The journal format this build writes and reads: the header's `format`.
-pub const FORMAT: u32 = 1;
+/// The journal format this build writes: the header's `format`. Format 2
+/// journals a write's `cleared` ids; a format 1 journal has none, and is read
+/// as before and made format 2 when it is opened.
+pub const FORMAT: u32 = 2;
+
+/// The oldest journal format this build reads.
+pub const OLDEST_FORMAT: u32 = 1;
 
 /// The proto package of the journal's messages.
 const PACKAGE: &str = "store_jsonl.v1";

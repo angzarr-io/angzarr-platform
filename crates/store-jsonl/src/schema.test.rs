@@ -119,7 +119,7 @@ fn test_a_header_is_this_line() {
         op: Some(entry::Op::Header(Header { format: FORMAT })),
     };
     let line = encode_line(&schema.to_dynamic(&header).unwrap()).unwrap();
-    assert_eq!(line, r#"{"header":{"format":1}}"#);
+    assert_eq!(line, r#"{"header":{"format":2}}"#);
 }
 
 #[test]

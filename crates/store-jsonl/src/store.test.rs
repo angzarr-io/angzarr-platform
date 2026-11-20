@@ -25,7 +25,9 @@ use os::{host, Flavor, Mode};
 use super::{Durability, JsonlStore, Opened, Options, Sink};
 use crate::{Failure, OpenError};
 
-const HEADER: &str = "{\"header\":{\"format\":1}}\n";
+const HEADER: &str = "{\"header\":{\"format\":2}}\n";
+/// The header of a journal written before `Write::cleared` was journaled.
+const HEADER_V1: &str = "{\"header\":{\"format\":1}}\n";
 
 /// `unix`, an absolute unix path, as the host spells it: on Windows, on
 /// drive C: with its separators.
@@ -795,14 +797,52 @@ fn test_a_journal_must_begin_with_its_header() {
 
 #[test]
 fn test_a_newer_format_is_refused() {
-    let (err, _) = refused("{\"header\":{\"format\":2}}\n");
+    let (err, after) = refused("{\"header\":{\"format\":3}}\n");
     assert_eq!(
         err,
         OpenError::UnsupportedFormat {
             path: journal_text(),
-            found: 2,
-            supported: 1
+            found: 3,
+            supported: 2
         }
+    );
+    assert_eq!(after, "{\"header\":{\"format\":3}}\n", "left as it is");
+}
+
+#[tokio::test]
+async fn test_a_format_1_journal_replays_as_before_and_is_made_format_2() {
+    let fs = home();
+    let store = open(&fs).store;
+    populate(&store).await;
+    let before = state(&store).await;
+    drop(store);
+    let written = text(&fs);
+    let body = written.strip_prefix(HEADER).expect("a format 2 header");
+    put_journal(&fs, &format!("{HEADER_V1}{body}"));
+
+    let store = open(&fs).store;
+    assert_eq!(state(&store).await, before);
+    drop(store);
+    assert_eq!(text(&fs), written, "only the header changed, to format 2");
+
+    // Appending after the upgrade is read back by the next open.
+    let store = open(&fs).store;
+    let replacement = [entry(4, "h1", 4)];
+    let cleared = [command(3)];
+    store
+        .write(Write {
+            outbox: &replacement,
+            cleared: &cleared,
+            ..Write::default()
+        })
+        .await
+        .unwrap();
+    drop(store);
+    let store = open(&fs).store;
+    let pending = store.pending(10).await.unwrap();
+    assert_eq!(
+        pending.iter().map(|e| e.id).collect::<Vec<_>>(),
+        [command(4)]
     );
 }
 

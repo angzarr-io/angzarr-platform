@@ -246,8 +246,8 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(OpenError::NotAJournal { path: path() }),
         Box::new(OpenError::UnsupportedFormat {
             path: path(),
-            found: 2,
-            supported: 1,
+            found: 3,
+            supported: 2,
         }),
         Box::new(OpenError::ReplayRefused {
             path: path(),

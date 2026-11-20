@@ -42,12 +42,12 @@ fn test_a_corrupt_line_names_the_line_and_leaves_the_journal() {
 fn test_an_unsupported_format_names_both_formats() {
     let e = OpenError::UnsupportedFormat {
         path: "/j".to_string(),
-        found: 2,
-        supported: 1,
+        found: 3,
+        supported: 2,
     };
     assert_eq!(
         e.english(),
-        "the journal /j is in format 2; this build reads format 1"
+        "the journal /j is in format 3; this build reads formats up to 2"
     );
     assert_eq!(arg_names(&e), ["path", "found", "supported"]);
 }
