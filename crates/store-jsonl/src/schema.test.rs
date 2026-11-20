@@ -72,6 +72,7 @@ fn every_entry() -> Vec<Entry> {
                     letter: vec![8],
                 },
             ],
+            cleared: vec!["05050505-0505-0505-0505-050505050505".to_string()],
         })),
         op(entry::Op::SnapshotWritten(SnapshotWritten {
             stream: Some(stream(None)),
@@ -254,7 +255,7 @@ fn test_every_field_says_its_label_and_its_json_name() {
             let name = field.name();
             let label = if matches!(
                 (message.name(), name),
-                ("Write", "positions" | "outbox" | "dead_letters")
+                ("Write", "positions" | "outbox" | "dead_letters" | "cleared")
                     | ("Append", "pages")
                     | ("OutboxCleared", "ids")
                     | ("DeadLettersRemoved", "keys")

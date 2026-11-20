@@ -46,6 +46,9 @@ message Write {
   repeated Position positions = 2;
   repeated OutboxEntry outbox = 3;
   repeated DeadLetter dead_letters = 4;
+  // Outbox entries the write clears, each an id's canonical text: cleared
+  // before the write's own entries are added.
+  repeated string cleared = 5;
 }
 
 message Append {

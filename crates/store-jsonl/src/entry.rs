@@ -81,6 +81,7 @@ pub(crate) fn write(write: &Write<'_>) -> Plan {
         && write.positions.is_empty()
         && write.outbox.is_empty()
         && write.dead_letters.is_empty()
+        && write.cleared.is_empty()
     {
         return Plan::Skip;
     }
@@ -118,6 +119,7 @@ pub(crate) fn write(write: &Write<'_>) -> Plan {
             })
             .collect(),
         dead_letters,
+        cleared: write.cleared.iter().map(Uuid::to_string).collect(),
     }))
 }
 
@@ -307,11 +309,17 @@ fn replay_write(inner: &MemoryStore, recorded: &schema::Write) -> Result<(), Rep
             })
         })
         .collect::<Result<Vec<_>, Replay>>()?;
+    let cleared = recorded
+        .cleared
+        .iter()
+        .map(|id| uuid(id, "write.cleared"))
+        .collect::<Result<Vec<_>, Replay>>()?;
     let write = Write {
         events,
         positions: &positions,
         outbox: &outbox,
         dead_letters: &dead_letters,
+        cleared: &cleared,
     };
     answered(ready(inner.write(write))).map(drop)
 }

@@ -18,7 +18,8 @@
 //! - **One line is one operation.** Every operation that changes the store
 //!   appends exactly one line, a protobuf `Entry` ([`schema`], and
 //!   `proto/store_jsonl/v1/journal.proto`) in canonical proto3 JSON. A
-//!   write's events, positions, outbox entries and dead letters are one
+//!   write's events, positions, outbox entries, the outbox entries it
+//!   clears and dead letters are one
 //!   line, so a line is the atomic unit; a purge, a snapshot, an edition
 //!   stream's removal, an outbox clear and a dead letters' drain or removal
 //!   are one line each. The first line is a header naming the format.

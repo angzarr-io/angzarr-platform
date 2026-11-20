@@ -1,6 +1,6 @@
 //! Each operation's entry, and replaying entries.
 
-use angzarr_ports::contract::{dead_letter, entry, main_stream, page, snapshot};
+use angzarr_ports::contract::{command, dead_letter, entry, main_stream, page, snapshot};
 use angzarr_ports::{Append, DeadLetterAt, EventStore, PositionKey, PositionStore, Write};
 
 use super::*;
@@ -30,6 +30,7 @@ fn test_a_write_is_one_entry_with_everything_it_changes() {
     )];
     let outbox = [entry(1, "h", 1)];
     let letters = [dead_letter(stream(), DeadLetterAt::Sequence(0), "h", 1)];
+    let cleared = [command(7), command(8)];
     let recorded = op(write(&Write {
         events: Some(Append {
             stream: stream(),
@@ -39,6 +40,7 @@ fn test_a_write_is_one_entry_with_everything_it_changes() {
         positions: &positions,
         outbox: &outbox,
         dead_letters: &letters,
+        cleared: &cleared,
     }));
     let Op::Write(w) = recorded else {
         panic!("{recorded:?}")
@@ -54,6 +56,10 @@ fn test_a_write_is_one_entry_with_everything_it_changes() {
     assert_eq!(w.outbox.len(), 1);
     assert_eq!(w.outbox[0].origin, "h");
     assert_eq!(w.dead_letters.len(), 1);
+    assert_eq!(
+        w.cleared,
+        vec![command(7).to_string(), command(8).to_string()]
+    );
 }
 
 #[test]
@@ -90,6 +96,12 @@ fn test_a_write_that_changes_nothing_is_skipped() {
         ..Write::default()
     };
     assert!(matches!(write(&only_letters), Plan::Line(_)));
+    let ids = [command(1)];
+    let only_cleared = Write {
+        cleared: &ids,
+        ..Write::default()
+    };
+    assert!(matches!(write(&only_cleared), Plan::Line(_)));
 }
 
 #[test]
@@ -286,6 +298,13 @@ fn write_cases() -> Vec<(Op, &'static str)> {
         ),
         (
             Op::Write(schema::Write {
+                cleared: vec!["x".to_string()],
+                ..schema::Write::default()
+            }),
+            "write.cleared",
+        ),
+        (
+            Op::Write(schema::Write {
                 dead_letters: vec![schema::DeadLetter {
                     stream: Some(good.clone()),
                     at: Some(schema::Place {
@@ -363,6 +382,7 @@ async fn test_replaying_what_was_recorded_makes_the_same_store() {
         positions: &positions,
         outbox: &outbox,
         dead_letters: &letters,
+        cleared: &[],
     };
     live.write(recorded).await.unwrap();
     let copy = MemoryStore::new();
@@ -385,5 +405,39 @@ async fn test_replaying_what_was_recorded_makes_the_same_store() {
     assert_eq!(
         live.position(positions[0].0).await.unwrap(),
         copy.position(positions[0].0).await.unwrap()
+    );
+}
+
+#[tokio::test]
+async fn test_replaying_a_write_clears_what_it_cleared_before_adding_its_own() {
+    let first = [entry(1, "h", 1), entry(2, "h", 2)];
+    let own = [entry(1, "h", 9)];
+    let cleared = [command(1)];
+    let seed = Write {
+        outbox: &first,
+        ..Write::default()
+    };
+    let step = Write {
+        outbox: &own,
+        cleared: &cleared,
+        ..Write::default()
+    };
+    let live = MemoryStore::new();
+    live.write(seed).await.unwrap();
+    live.write(step).await.unwrap();
+    let copy = MemoryStore::new();
+    for recorded in [&seed, &step] {
+        let Plan::Line(line) = write(recorded) else {
+            panic!()
+        };
+        replay(&copy, line).unwrap();
+    }
+    assert_eq!(
+        copy.pending(9).await.unwrap(),
+        vec![first[1].clone(), own[0].clone()]
+    );
+    assert_eq!(
+        live.pending(9).await.unwrap(),
+        copy.pending(9).await.unwrap()
     );
 }

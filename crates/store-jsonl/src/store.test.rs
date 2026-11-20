@@ -131,6 +131,7 @@ async fn populate(store: &JsonlStore) {
             positions: &positions,
             outbox: &outbox,
             dead_letters: &letters,
+            cleared: &[],
         })
         .await
         .unwrap();
@@ -145,6 +146,16 @@ async fn populate(store: &JsonlStore) {
     fork(store, e2()).await;
     store.remove_edition_stream(e2()).await.unwrap();
     store.clear(&[command(1)]).await.unwrap();
+    let replacement = [entry(3, "h1", 3)];
+    let cleared = [command(2)];
+    store
+        .write(Write {
+            outbox: &replacement,
+            cleared: &cleared,
+            ..Write::default()
+        })
+        .await
+        .unwrap();
     let kept = [
         dead_letter(s1(), DeadLetterAt::Sequence(1), "h1", 6),
         dead_letter(s1(), DeadLetterAt::Command(command(9)), "h1", 7),
@@ -274,6 +285,7 @@ async fn test_each_changing_operation_appends_exactly_one_line() {
             positions: &positions,
             outbox: &outbox,
             dead_letters: &letters,
+            cleared: &[],
         })
         .await
         .unwrap();
@@ -349,9 +361,10 @@ async fn test_a_refused_operation_journals_nothing() {
     let state_before = state(&store).await;
 
     // A write at the wrong length, with a position and an outbox entry that
-    // must not land either.
+    // must not land either, and an outbox entry it clears that must stay.
     let positions = [(key("h9", s1()), 9)];
     let outbox = [entry(9, "h9", 9)];
+    let cleared = [command(1)];
     let refused = store
         .write(Write {
             events: Some(Append {
@@ -362,6 +375,7 @@ async fn test_a_refused_operation_journals_nothing() {
             positions: &positions,
             outbox: &outbox,
             dead_letters: &[],
+            cleared: &cleared,
         })
         .await;
     assert!(
@@ -507,10 +521,11 @@ async fn test_a_purge_and_an_edition_removal_stay_done_after_reopening() {
         matches!(refused, Err(StoreError::EditionNotForked { .. })),
         "{refused:?}"
     );
-    // The cleared outbox entry stays cleared, the other pending.
+    // The entries cleared, by a call and by a write, stay cleared; the write's
+    // own entry is pending.
     let pending = store.pending(10).await.unwrap();
     assert_eq!(pending.len(), 1);
-    assert_eq!(pending[0].id, command(2));
+    assert_eq!(pending[0].id, command(3));
 }
 
 #[tokio::test]

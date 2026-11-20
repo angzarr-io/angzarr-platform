@@ -19,7 +19,8 @@ let store = opened.store; // implements Store, Processed, ListStreams, ReadStore
   is the reference backend's. The journal makes it durable: every operation
   that changes the store appends exactly one line, a `store_jsonl.v1.Entry`
   (`proto/store_jsonl/v1/journal.proto`) in canonical proto3 JSON. A write's
-  events, positions, outbox entries and dead letters are one line.
+  events, positions, outbox entries, the outbox entries it clears and dead
+  letters are one line.
 - A commit wakes `CommitNotify`'s waits once its line is in the journal; an
   operation refused, or whose line did not land, wakes nothing.
 - Open takes an exclusive lock (`<journal>.lock`), replays the journal, and

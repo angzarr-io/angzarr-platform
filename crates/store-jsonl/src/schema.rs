@@ -83,6 +83,8 @@ pub struct Write {
     pub outbox: Vec<OutboxEntry>,
     #[prost(message, repeated, tag = "4")]
     pub dead_letters: Vec<DeadLetter>,
+    #[prost(string, repeated, tag = "5")]
+    pub cleared: Vec<String>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -347,6 +349,7 @@ fn write_messages() -> Vec<DescriptorProto> {
                 repeated("positions", 2, Kind::Message("Position")),
                 repeated("outbox", 3, Kind::Message("OutboxEntry")),
                 repeated("dead_letters", 4, Kind::Message("DeadLetter")),
+                repeated("cleared", 5, Kind::Scalar(Type::String)),
             ],
             &["_events"],
         ),
